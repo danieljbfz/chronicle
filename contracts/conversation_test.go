@@ -60,12 +60,12 @@ func TestIsAbandoned_realPromptReturnsFalse(t *testing.T) {
 	}
 }
 
-// TestStorageVersion_IsKnown pins the predicate's behaviour for the
-// values that actually appear in practice. A known version like
-// "claude-1.0" or "copilot-3" is known; the empty string and the
-// literal "unknown" are not. Everything in chronicle that gates
-// destructive operations on a known fingerprint depends on this
-// function returning the right answer.
+// TestStorageVersion_IsKnown pins the predicate for the values that
+// actually appear in practice. A real version like "claude-1.0" or
+// "copilot-3" counts as known. The empty string and the literal
+// "unknown" do not. Every part of chronicle that gates destructive
+// operations on a recognized fingerprint relies on this function
+// returning the right answer.
 func TestStorageVersion_IsKnown(t *testing.T) {
 	cases := []struct {
 		version string

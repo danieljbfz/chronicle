@@ -143,13 +143,14 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 	}, nil
 }
 
-// rawRecord captures the envelope fields chronicle reads directly
+// rawRecord captures the envelope fields chronicle reads straight
 // from each JSONL line. Anything else stays in the json.RawMessage
-// fields, where we can decode it later based on the record type. The
-// struct tags map JSON keys to Go field names, and the lowercase
-// "line" field at the bottom is unexported so the JSON decoder
-// ignores it; we set it ourselves after the decode so the unknown
-// branch in parseStream can preserve the original bytes.
+// fields, ready to be decoded later once we know what shape to
+// expect. The struct tags map JSON keys to Go field names. The
+// lowercase "line" field at the bottom is unexported, so the JSON
+// decoder ignores it. We set it ourselves right after the decode,
+// which is what lets the unknown-record branch in parseStream keep
+// the original bytes around.
 type rawRecord struct {
 	Type        string          `json:"type"`
 	UUID        string          `json:"uuid"`
@@ -336,9 +337,9 @@ func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 
 // flattenToolResultContent accepts either a plain string or an array
 // of {type:"text", text:"..."} parts and returns the concatenated
-// text. Claude stores tool results in either shape depending on which
-// tool produced the result, and the rest of chronicle should not have
-// to care which.
+// text. Claude stores tool results in one shape or the other
+// depending on which tool produced them, and the rest of chronicle
+// works with a single string regardless of which one we started with.
 func flattenToolResultContent(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""

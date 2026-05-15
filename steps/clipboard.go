@@ -37,7 +37,7 @@ func OSC52Sequence(text string) string {
 //
 // We return the writer's error verbatim. If the user pipes
 // chronicle's output into something that does not understand OSC 52,
-// the bytes still get written; whether they reach a terminal that
+// the bytes still get written. Whether they reach a terminal that
 // can interpret them is up to whatever sits at the end of the pipe.
 func CopyOSC52(w io.Writer, text string) error {
 	_, err := io.WriteString(w, OSC52Sequence(text))

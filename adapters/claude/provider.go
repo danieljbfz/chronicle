@@ -11,26 +11,26 @@ import (
 )
 
 // Provider is the Claude adapter. Composition keeps one instance per
-// chronicle process, and the type is mostly stateless: the only
-// thing it caches is the StorageVersion that Detect produced, so we
-// avoid re-fingerprinting every call. Methods that need the cached
-// version use it through the cached field; methods that do not (the
-// listing methods, for example) ignore it.
+// chronicle process. The type is mostly stateless. The only thing it
+// hangs on to is the StorageVersion that Detect produced, so we do
+// not re-fingerprint on every call. Methods that need the cached
+// version read it from the cached field. Methods that do not, like
+// the plain listing methods, ignore it.
 type Provider struct {
 	cached  contracts.StorageVersion
 	cacheOK bool
 }
 
-// New returns a ready-to-use Provider. We do not eagerly call Detect
-// here, because the constructor should not do disk I/O. The first
-// caller that asks for the storage version pays the detection cost,
-// and every caller after that gets the cached value.
+// New returns a ready-to-use Provider. The constructor stays
+// I/O-free on purpose, so we do not call Detect here. The first
+// caller that asks for the storage version is the one that triggers
+// the disk read, and everyone after that gets the cached result.
 func New() *Provider { return &Provider{} }
 
-// Name returns the adapter's stable identifier. The string is
-// referenced from the registry, the doctor view, and the JSON output
-// of the list command, so we go through the constant declared in
-// detect.go rather than duplicating the literal here.
+// Name returns the adapter's stable identifier. The same string
+// shows up in the registry, in the doctor view, and in the JSON
+// output of the list command, so we read it from the constant
+// declared in detect.go instead of repeating the literal here.
 func (*Provider) Name() string { return adapterName }
 
 // Detect returns the StorageVersion for the given root, computing
@@ -52,12 +52,11 @@ func (p *Provider) Detect(root fs.FS) (contracts.StorageVersion, error) {
 }
 
 // ListProjects returns one Project per subdirectory under the
-// projects directory. The function is the natural building block for
-// the user interface's "show me everything" view, and the cleanup
-// commands use the same listing as the starting point for
-// orphan-scanning. We sort the result by display name so the user
-// sees a stable order that does not depend on the operating
-// system's directory iteration order.
+// projects directory. The user interface uses this for the
+// "show me everything" view, and the cleanup commands use the same
+// listing as the starting point for their orphan scan. We sort by
+// display name so the order stays stable across runs, regardless of
+// how the operating system happens to iterate the directory.
 func (p *Provider) ListProjects(root fs.FS) ([]contracts.Project, error) {
 	entries, err := fs.ReadDir(root, projectsDir)
 	if err != nil {

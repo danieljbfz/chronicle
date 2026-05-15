@@ -82,10 +82,11 @@ func TestParse_emptySessionIsAbandoned(t *testing.T) {
 	}
 }
 
-// TestParse_thinkingBlockSurvives proves the parser keeps the
-// assistant's internal reasoning rather than discarding it. Hiding
-// the thinking block at render time is a UI choice; dropping it at
-// parse time would be a violation of the resilience contract.
+// TestParse_thinkingBlockSurvives proves the parser holds on to the
+// assistant's internal reasoning instead of discarding it. Hiding
+// the thinking block at render time is a UI choice. Dropping it at
+// parse time would break the resilience contract, because we would
+// be losing content the upstream tool wrote.
 func TestParse_thinkingBlockSurvives(t *testing.T) {
 	c := readSession(t, "thinking_session.jsonl")
 	found := false

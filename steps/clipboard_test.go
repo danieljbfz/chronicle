@@ -63,8 +63,9 @@ func TestOSC52Sequence_handlesUnicodeAndNewlines(t *testing.T) {
 
 // TestCopyOSC52_writesToWriter is a smoke test that proves the
 // io.Writer plumbing actually writes something. The shape checks in
-// TestOSC52Sequence_shape cover the content; this test only verifies
-// that nothing was lost between the helper and the writer.
+// TestOSC52Sequence_shape cover the content of the bytes themselves.
+// This test only confirms that nothing was lost between the helper
+// and the writer it was handed.
 func TestCopyOSC52_writesToWriter(t *testing.T) {
 	var buf bytes.Buffer
 	if err := CopyOSC52(&buf, "abc"); err != nil {
