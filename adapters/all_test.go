@@ -20,13 +20,29 @@ func TestAll_returnsRegisteredFactories(t *testing.T) {
 	}
 }
 
+// withProvider returns a copy of the defaults with one
+// provider's config field overridden. We use a copy so test
+// cases do not mutate the package-level defaults map (which
+// would leak state between tests). The helper keeps the
+// per-test assignments below readable, so each test's first
+// line shows what it changes from the baseline.
+func withProvider(name string, override config.ProviderConfig) config.Config {
+	settings := config.Defaults()
+	out := make(map[string]config.ProviderConfig, len(settings.Providers))
+	for k, v := range settings.Providers {
+		out[k] = v
+	}
+	out[name] = override
+	settings.Providers = out
+	return settings
+}
+
 // TestClaudeFactory_disabledReturnsNothing confirms the Enabled
 // flag actually disables the provider. A user who turns off the
 // Claude adapter in their config should see no Claude entry,
 // regardless of whether ~/.claude exists.
 func TestClaudeFactory_disabledReturnsNothing(t *testing.T) {
-	settings := config.Defaults()
-	settings.Providers.Claude.Enabled = false
+	settings := withProvider(config.ProviderClaude, config.ProviderConfig{Enabled: false})
 	entries := claudeFactory(settings, paths.Locations{ClaudeRoot: "/tmp/anywhere"})
 	if entries != nil {
 		t.Errorf("disabled Claude factory returned %d entries, want nil", len(entries))
@@ -38,8 +54,10 @@ func TestClaudeFactory_disabledReturnsNothing(t *testing.T) {
 // keep their data on an external drive depend on this path being
 // honoured.
 func TestClaudeFactory_usesConfigRootWhenSet(t *testing.T) {
-	settings := config.Defaults()
-	settings.Providers.Claude.Root = "/custom/claude/location"
+	settings := withProvider(config.ProviderClaude, config.ProviderConfig{
+		Enabled: true,
+		Root:    "/custom/claude/location",
+	})
 	entries := claudeFactory(settings, paths.Locations{ClaudeRoot: "/default/location"})
 	if len(entries) != 1 {
 		t.Fatalf("entries = %d, want 1", len(entries))
@@ -54,8 +72,7 @@ func TestClaudeFactory_usesConfigRootWhenSet(t *testing.T) {
 // paths package. That is what most users will hit, because they
 // never touch the config file.
 func TestClaudeFactory_fallsBackToDefaultRoot(t *testing.T) {
-	settings := config.Defaults()
-	settings.Providers.Claude.Root = ""
+	settings := withProvider(config.ProviderClaude, config.ProviderConfig{Enabled: true})
 	entries := claudeFactory(settings, paths.Locations{ClaudeRoot: "/default/.claude"})
 	if len(entries) != 1 {
 		t.Fatalf("entries = %d, want 1", len(entries))
@@ -69,8 +86,7 @@ func TestClaudeFactory_fallsBackToDefaultRoot(t *testing.T) {
 // case for symmetry. Users who only run one provider deserve a
 // clean disable switch for the other.
 func TestCopilotFactory_disabledReturnsNothing(t *testing.T) {
-	settings := config.Defaults()
-	settings.Providers.Copilot.Enabled = false
+	settings := withProvider(config.ProviderCopilot, config.ProviderConfig{Enabled: false})
 	entries := copilotFactory(settings, paths.Locations{CopilotRoots: []string{"/tmp"}})
 	if entries != nil {
 		t.Errorf("disabled Copilot factory returned %d entries, want nil", len(entries))

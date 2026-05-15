@@ -61,10 +61,11 @@ func All() []Factory {
 // falls back to the default ~/.claude location resolved by the
 // paths package.
 func claudeFactory(settings config.Config, locations paths.Locations) []Entry {
-	if !settings.Providers.Claude.Enabled {
+	cfg := settings.Providers[config.ProviderClaude]
+	if !cfg.Enabled {
 		return nil
 	}
-	root := settings.Providers.Claude.Root
+	root := cfg.Root
 	if root == "" {
 		root = locations.ClaudeRoot
 	}
@@ -83,10 +84,11 @@ func claudeFactory(settings config.Config, locations paths.Locations) []Entry {
 // surviving root gets its own Provider value so each one keeps its
 // own cached storage version.
 func copilotFactory(settings config.Config, locations paths.Locations) []Entry {
-	if !settings.Providers.Copilot.Enabled {
+	cfg := settings.Providers[config.ProviderCopilot]
+	if !cfg.Enabled {
 		return nil
 	}
-	roots := settings.Providers.Copilot.Roots
+	roots := cfg.Roots
 	if len(roots) == 0 {
 		roots = locations.CopilotRoots
 	}

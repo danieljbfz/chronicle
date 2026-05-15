@@ -15,15 +15,24 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// Provider name constants used by the config package and the
+// adapter registry alike. Keeping the names in one place
+// means the TOML key, the registry lookup, and any test
+// fixture all reference the same string.
+const (
+	ProviderClaude  = "claude"
+	ProviderCopilot = "copilot"
+)
+
 // Config is the in-memory shape of config.toml. Each nested struct
 // maps to a [section] in TOML, and each field maps to a key inside
 // that section through the toml:"..." struct tag at the end of the
 // field declaration. The TOML decoder reads those tags through
 // reflection at runtime to match the file's layout to our types.
 type Config struct {
-	Trash     TrashConfig     `toml:"trash"`
-	UI        UIConfig        `toml:"ui"`
-	Providers ProvidersConfig `toml:"providers"`
+	Trash     TrashConfig               `toml:"trash"`
+	UI        UIConfig                  `toml:"ui"`
+	Providers map[string]ProviderConfig `toml:"providers"`
 }
 
 // TrashConfig controls how long deleted items linger in the chronicle
@@ -68,34 +77,35 @@ type WebConfig struct {
 	OpenBrowser bool   `toml:"open_browser"`
 }
 
-// ProvidersConfig is the umbrella section that holds one subsection
-// per upstream tool chronicle supports. Adding a new provider in a
-// future plan means adding a new field here, and the rest of the
-// loading machinery picks it up automatically.
-type ProvidersConfig struct {
-	Claude  ClaudeConfig  `toml:"claude"`
-	Copilot CopilotConfig `toml:"copilot"`
-}
-
-// ClaudeConfig holds the settings for the Claude adapter. Enabled
-// turns the adapter on or off, and Root lets the user point chronicle
-// at a non-default location for ~/.claude (useful if they keep their
-// data on an external drive, for example).
-type ClaudeConfig struct {
-	Enabled bool   `toml:"enabled"`
-	Root    string `toml:"root"`
-}
-
-// CopilotConfig holds the settings for the Copilot adapter. Roots is a
-// list, not a single path, because VS Code, VS Code Insiders, and
-// Cursor each live in their own location, and a single chronicle
-// install often wants to read all three. RefuseWhenVSCodeRunning is
-// the safety switch that prevents destructive operations against the
-// state.vscdb file VS Code is actively writing.
-type CopilotConfig struct {
-	Enabled                 bool     `toml:"enabled"`
-	Roots                   []string `toml:"roots"`
-	RefuseWhenVSCodeRunning bool     `toml:"refuse_when_vscode_running"`
+// ProviderConfig is the generic, provider-agnostic shape of one entry
+// under [providers.<name>] in the TOML file. The same shape covers
+// every adapter chronicle knows about today and every adapter that
+// might land in a future release. The fields are:
+//
+//   - Enabled: master switch for the adapter. A user who never runs
+//     Copilot can set Copilot's Enabled to false and chronicle will
+//     skip the directory probes entirely.
+//   - Root: the absolute filesystem path of a single-rooted adapter
+//     (Claude). Empty falls back to the platform default.
+//   - Roots: the list of absolute paths a multi-rooted adapter walks
+//     (Copilot, with one entry per VS Code variant the user has
+//     installed). Empty falls back to the platform defaults.
+//   - Settings: the catch-all for adapter-specific knobs that do not
+//     fit any of the above. The map's keys and values are
+//     adapter-defined, so each adapter's own factory unmarshals its
+//     portion into a typed local struct when it needs one. Today no
+//     adapter uses this field, so the map is always empty in
+//     practice.
+//
+// Adding a new adapter does not require any change to this type. The
+// adapter's factory in adapters/all.go reads the relevant subsection
+// from the Providers map, falling back to its own defaults when keys
+// are absent.
+type ProviderConfig struct {
+	Enabled  bool                   `toml:"enabled"`
+	Root     string                 `toml:"root"`
+	Roots    []string               `toml:"roots"`
+	Settings map[string]interface{} `toml:"settings"`
 }
 
 // Defaults returns the configuration that ships with a fresh install.
@@ -103,6 +113,11 @@ type CopilotConfig struct {
 // that sets only one key still produces a fully-formed Config and
 // chronicle never has to deal with zero values for fields the user
 // did not mention.
+//
+// The Providers map is populated with one entry per adapter chronicle
+// knows about by name. Adding a new adapter is one new entry here
+// (with the right default Enabled value), one new factory in
+// adapters/all.go, and the adapter package itself.
 func Defaults() Config {
 	return Config{
 		Trash: TrashConfig{RetentionDays: 30},
@@ -118,14 +133,9 @@ func Defaults() Config {
 				OpenBrowser: true,
 			},
 		},
-		Providers: ProvidersConfig{
-			Claude: ClaudeConfig{
-				Enabled: true,
-			},
-			Copilot: CopilotConfig{
-				Enabled:                 true,
-				RefuseWhenVSCodeRunning: true,
-			},
+		Providers: map[string]ProviderConfig{
+			ProviderClaude:  {Enabled: true},
+			ProviderCopilot: {Enabled: true},
 		},
 	}
 }

@@ -18,7 +18,7 @@ func TestLoad_missingFileReturnsDefaults(t *testing.T) {
 	if cfg.Trash.RetentionDays != 30 {
 		t.Errorf("RetentionDays = %d, want 30", cfg.Trash.RetentionDays)
 	}
-	if !cfg.Providers.Claude.Enabled {
+	if !cfg.Providers[ProviderClaude].Enabled {
 		t.Error("Claude should be enabled by default")
 	}
 }
@@ -49,14 +49,45 @@ root    = "/some/where"
 	if cfg.Trash.RetentionDays != 7 {
 		t.Errorf("RetentionDays = %d, want 7", cfg.Trash.RetentionDays)
 	}
-	if cfg.Providers.Claude.Enabled {
+	if cfg.Providers[ProviderClaude].Enabled {
 		t.Error("Claude should be disabled per file")
 	}
-	if cfg.Providers.Claude.Root != "/some/where" {
-		t.Errorf("Root = %q, want %q", cfg.Providers.Claude.Root, "/some/where")
+	if cfg.Providers[ProviderClaude].Root != "/some/where" {
+		t.Errorf("Root = %q, want %q", cfg.Providers[ProviderClaude].Root, "/some/where")
 	}
-	if cfg.Providers.Copilot.Enabled != true {
+	if !cfg.Providers[ProviderCopilot].Enabled {
 		t.Error("Copilot should remain enabled (default)")
+	}
+}
+
+// TestLoad_unknownProviderRoundsTrip proves the map shape
+// is genuinely provider-agnostic. A config file that
+// declares a provider chronicle does not yet ship (say, a
+// "cursor" or "antigravity" subsection) is parsed without
+// error and the entry is available in the map for any
+// future adapter factory to read. The point is that the
+// config layer never has to learn a provider name to load
+// its config.
+func TestLoad_unknownProviderRoundsTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	body := `
+[providers.cursor]
+enabled = true
+root    = "/Users/x/.cursor"
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cursor := cfg.Providers["cursor"]
+	if !cursor.Enabled {
+		t.Error("future provider 'cursor' should be enabled per file")
+	}
+	if cursor.Root != "/Users/x/.cursor" {
+		t.Errorf("Root = %q, want %q", cursor.Root, "/Users/x/.cursor")
 	}
 }
 
