@@ -147,12 +147,15 @@ func decodeProjectPath(folderName string) string {
 	return folderName
 }
 
-// ListSessions returns the SessionSummary slice for one project.
-// We deliberately read every session file end to end here, because
-// the summary needs the first user prompt and the timestamps, both
-// of which only become available after parsing the file. The
-// listing pages of the UI cache these summaries so the cost is paid
-// once per session per chronicle invocation.
+// ListSessions returns one summary per session in a project. We
+// read every session file end to end inside this function. The
+// summary needs the first user prompt and the timestamps, and
+// neither of those is available until we have parsed the file.
+//
+// Reading every file sounds expensive, but it only happens once
+// per session per chronicle run. The user interface caches the
+// summaries it gets back, so opening the same listing twice does
+// not pay the cost twice.
 func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]contracts.SessionSummary, error) {
 	dir := path.Join(projectsDir, string(project))
 	entries, err := fs.ReadDir(root, dir)
@@ -193,12 +196,15 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 	return summaries, nil
 }
 
-// ReadSession finds the session file by walking the projects tree
-// and parses it. The cost is one directory walk plus one file read,
-// which is fine for the export and copy commands that only ever
-// touch one session. If a future view ever wants to bulk-read many
-// sessions, it should call ListSessions first and then ReadSession
-// per identifier.
+// ReadSession finds one session by walking the projects tree and
+// returns the parsed Conversation. The walk takes one directory
+// listing plus one file read. That is cheap enough for the export
+// and copy commands, which only ever touch one session at a time.
+//
+// A future view that needs to read many sessions in bulk should
+// call ListSessions first to get all the identifiers, then call
+// ReadSession on each one. Doing the walk per identifier would
+// repeat work the listing already did.
 func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Conversation, error) {
 	file, err := locateSessionFile(root, id)
 	if err != nil {
@@ -207,11 +213,13 @@ func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Co
 	return readSessionFile(root, file, p.cached)
 }
 
-// locateSessionFile walks the projects tree looking for a .jsonl file
-// whose stem matches the session identifier. We accept the linear
-// scan because session identifiers are UUIDs and a Claude install
-// rarely has more than a few hundred of them — the walk is fast
-// enough that an index would be over-engineering at this stage.
+// locateSessionFile walks the projects tree and returns the path
+// of the .jsonl file whose name matches the session identifier. We
+// scan the tree linearly rather than building an index. Session
+// identifiers are UUIDs, and a Claude install almost never has
+// more than a few hundred of them, so the walk is fast enough.
+// Building an index would be more code to maintain for no real
+// gain at this scale.
 func locateSessionFile(root fs.FS, id contracts.SessionID) (string, error) {
 	projects, err := fs.ReadDir(root, projectsDir)
 	if err != nil {
@@ -229,11 +237,15 @@ func locateSessionFile(root fs.FS, id contracts.SessionID) (string, error) {
 	return "", fs.ErrNotExist
 }
 
-// PlanDelete and PlanOrphanScan delegate to the stubs in
-// cleanup_stub.go for now. The real cascade-aware implementations
-// land in a later plan. The split exists so the destructive code
-// paths simply do not exist yet — we cannot accidentally delete
-// anything when the function returns ErrNotImplemented.
+// PlanDelete and PlanOrphanScan call the stubs in cleanup_stub.go
+// for now. The real cascade-aware versions land in a later plan,
+// once the trash subsystem exists to back them up.
+//
+// Keeping the destructive paths as stubs is a safety choice. The
+// stub returns ErrNotImplemented and that is all it does. There is
+// no code in chronicle today that can accidentally delete anything,
+// because the code that would do the deleting has not been written
+// yet.
 func (p *Provider) PlanDelete(root fs.FS, id contracts.SessionID) (contracts.DeletePlan, error) {
 	return planDeleteStub(root, id)
 }

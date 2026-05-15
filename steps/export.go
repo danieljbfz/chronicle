@@ -8,12 +8,15 @@ import (
 	"github.com/danieljbfz/chronicle/contracts"
 )
 
-// Markdown renders a Conversation as a human-readable Markdown
-// document. The function does not filter anything: callers that want
-// to omit tools or thinking should call Filter first and then pass
-// the filtered conversation to Markdown. Keeping the two concerns
-// separate means each step has one job and tests for one can stay
-// independent of the other.
+// Markdown renders a Conversation as a Markdown document a person
+// can read. It does not filter anything by itself. Callers that
+// want to drop tool calls or thinking blocks should run Filter
+// first and then pass the result to Markdown.
+//
+// Keeping filtering and rendering as separate steps means each
+// function has one job. The filter tests do not have to know
+// anything about Markdown, and the Markdown tests do not have to
+// know anything about filters.
 func Markdown(c contracts.Conversation) string {
 	var builder strings.Builder
 

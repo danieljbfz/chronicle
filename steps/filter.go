@@ -2,14 +2,19 @@ package steps
 
 import "github.com/danieljbfz/chronicle/contracts"
 
-// FilterOptions controls which blocks and which messages survive a
-// Filter call. Every field defaults to false, so the zero value of
-// FilterOptions keeps everything. Callers turn on whichever flags
-// they want: the export command turns on HideTools when the user
-// passed --no-tools at the command line, the user interface turns on
-// HideMeta by default because slash-command echoes are noise, and so
-// on. Building options this way means there is no constructor to
-// remember and no risk of forgetting an argument.
+// FilterOptions tells Filter which blocks and which messages to
+// drop. Every field starts as false, so passing an empty
+// FilterOptions keeps everything.
+//
+// Callers turn on the flags they want. The export command turns on
+// HideTools when the user passed --no-tools at the command line.
+// The user interface turns on HideMeta by default, because the
+// slash-command echoes that meta marks are noise in the reading
+// view. The flags are independent, so callers can mix and match.
+//
+// Using a struct of flags instead of separate function arguments
+// means there is no constructor to remember and no risk of
+// forgetting an argument when a new flag is added later.
 type FilterOptions struct {
 	HideTools     bool
 	HideThinking  bool

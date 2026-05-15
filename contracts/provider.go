@@ -2,35 +2,39 @@ package contracts
 
 import "io/fs"
 
-// Provider is the per-tool adapter contract that the rest of chronicle
-// uses. Composition hands each Provider an fs.FS rooted at the
-// provider's data directory, instead of a path string, so that the
-// adapter never touches the real filesystem directly. That indirection
-// is what makes adapters trivially testable: production code passes
-// os.DirFS("/home/user/.claude") and the tests pass an in-memory
-// fstest.MapFS, and the adapter cannot tell the difference.
+// Provider is the contract every per-tool adapter has to satisfy.
+// The rest of chronicle calls these methods, never the adapters
+// directly.
 //
-// Detect always returns a non-nil StorageVersion. We only return an
-// error in the two cases where the adapter genuinely cannot proceed.
-// The first is when the provided path is unreachable, for example
-// because of a permission denial or a missing root directory. The
-// second is when no record in the storage parses as JSON at all, which
-// the resilience contract treats as a sign that we are pointed at a
-// completely foreign file rather than at an unrecognized version of a
-// known one. A file containing valid JSON whose schema we do not
-// recognize is handled by returning Version equal to "unknown," not by
-// returning an error.
+// Composition hands each Provider an fs.FS rooted at the
+// provider's data directory, instead of a path string. That sounds
+// like a small detail, but it is the trick that makes adapters
+// easy to test. In production, composition passes
+// os.DirFS("/home/user/.claude") and the adapter reads real files.
+// In tests, the suite passes an in-memory fstest.MapFS filled
+// with fixture content. The adapter cannot tell the difference,
+// because both kinds of value satisfy the same fs.FS interface.
 //
-// Every Provider implementation has to satisfy the four guarantees of
-// the resilience contract. It detects the storage version through a
-// fingerprint computed from the first few records. It parses
-// tolerantly, so unknown record types and unknown content kinds become
-// UnknownBlock entries instead of getting dropped. It tells the rest
-// of chronicle what it understood through the Capabilities flags, so
-// the user interface can branch on capability rather than on version.
-// And it produces a structured warning report when it encounters an
-// unrecognized fingerprint, so the user knows their data is being read
-// in read-only mode.
+// Detect always returns a non-nil StorageVersion. There are only
+// two cases where it returns an error instead. The first is when
+// the path is unreachable, for example because of a permission
+// denial or a missing root. The second is when no record in the
+// file parses as JSON at all, which means we are not looking at
+// the right kind of file. A file with valid JSON we do not
+// recognize is not an error. We set Version to "unknown" and the
+// rest of the system stays read-only.
+//
+// Every Provider has to follow four rules.
+//
+//	1. Detect the storage version from a fingerprint of the first
+//	   few records, so we can tell new versions apart from old ones.
+//	2. Parse tolerantly. Record types and content kinds we do not
+//	   recognize become UnknownBlock values, never dropped silently.
+//	3. Set the right Capabilities flags, so the user interface knows
+//	   which features to show without having to look at the version.
+//	4. Write a structured warning report when an unrecognized
+//	   fingerprint shows up, so the user knows their data is being
+//	   read in read-only mode.
 type Provider interface {
 	Name() string
 

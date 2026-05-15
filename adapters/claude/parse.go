@@ -12,14 +12,12 @@ import (
 	"github.com/danieljbfz/chronicle/contracts"
 )
 
-// readSessionFile parses one Claude session JSONL into a normalized
-// Conversation. The function is the bridge between Claude's specific
-// on-disk format and the shared contracts every other layer of
-// chronicle uses. It opens the file, hands the reader to parseStream,
-// and returns whatever parseStream produces. The split exists so the
-// parsing logic can be tested without touching the filesystem at all:
-// the tests give parseStream a strings.Reader full of fixture data,
-// and the production code gives it a real file.
+// readSessionFile is the entry point that turns one Claude session
+// file into a Conversation. It opens the file and hands the open
+// stream to parseStream. The split between the two functions is on
+// purpose. Tests can call parseStream directly with a fake reader,
+// without ever touching a real file. Production code calls
+// readSessionFile, which deals with the file part for you.
 func readSessionFile(root fs.FS, sessionFile string, source contracts.StorageVersion) (contracts.Conversation, error) {
 	f, err := root.Open(sessionFile)
 	if err != nil {
@@ -29,31 +27,35 @@ func readSessionFile(root fs.FS, sessionFile string, source contracts.StorageVer
 	return parseStream(f, source)
 }
 
-// parseStream reads JSONL from r and returns the normalized
-// Conversation. The parsing happens in three phases.
+// parseStream reads JSONL from r and returns a Conversation. JSONL
+// just means "one JSON object per line", which is the format Claude
+// Code uses for session files.
 //
-// First, we read every line into a generic rawRecord struct that
-// captures only the envelope fields chronicle cares about. We keep
-// the message body as a json.RawMessage so we can defer its parsing
-// until we know what shape to expect. Lines that fail to decode as
-// JSON at all get skipped, because the resilience contract says we
-// never crash on garbage and a corrupted line in the middle of a
-// good file should not bring the whole session down.
+// The function works in three passes.
 //
-// Second, we walk the records in order and turn each user, assistant,
-// or unknown record into a Message. Records of types we know about
-// but do not display (system notes, attachments, queue operations,
-// permission-mode changes, last-prompt bookmarks, file-history
-// snapshots) get dropped silently because they are not part of the
-// human-readable conversation. Truly unknown record types become a
-// Message wrapping a single UnknownBlock, which is how the resilience
-// contract surfaces them to the renderer.
+// First pass: read every line into a small struct called rawRecord
+// that grabs only the fields we always need (the type, the UUID,
+// the timestamp, and so on). The actual message body stays as raw
+// JSON for now, because we do not yet know what shape to expect.
+// If a line is not valid JSON at all, we skip it and keep going.
+// Crashing on one corrupted line in the middle of an otherwise good
+// file would lose every message after it, and that is exactly what
+// the resilience rule says we should never do.
 //
-// Third, we sort the resulting messages by timestamp. Claude writes
-// the records in chronological order today, so the sort is mostly a
-// no-op, but a defensive sort makes tests robust against minor
-// reorderings and protects us against any future Claude release that
-// might write records out of order for performance reasons.
+// Second pass: walk the records in order and turn each one into a
+// Message. User and assistant records become real messages. A
+// handful of internal Claude records (system notes, attachments,
+// queue operations, and a few others) are not part of the
+// conversation a person reads, so we drop them on the floor. Records
+// of a type chronicle does not recognize at all become a meta
+// message that wraps an UnknownBlock holding the original line. The
+// renderer can then show the unknown content to the user instead
+// of pretending it never existed.
+//
+// Third pass: sort the messages by timestamp. Claude writes them in
+// chronological order today, so the sort almost never reorders
+// anything. We do it anyway as a safety net, in case a future Claude
+// release writes records out of order for performance reasons.
 func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conversation, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), scannerBufferMax)
@@ -101,20 +103,18 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 		case "assistant":
 			messages = append(messages, parseAssistantRecord(record, ts))
 		case "system":
-			// System notes (local-command stdout, hook output) are
-			// not part of the conversation a user reads. We drop
-			// them silently for now and would add a SystemBlock if
-			// a future feature wanted to surface them.
+			// System notes are things like local-command output and
+			// hook output. They are not part of the conversation a
+			// person reads, so we drop them. If a future feature
+			// wants to show them, we would add a SystemBlock then.
 		case "attachment", "file-history-snapshot", "last-prompt",
 			"permission-mode", "queue-operation":
-			// These are the metadata records Claude writes for its
-			// own bookkeeping. They are not conversation content,
-			// so we drop them silently.
+			// Bookkeeping records Claude writes for itself. Not
+			// conversation content, so we drop them.
 		default:
-			// Unknown record type. The resilience contract requires
-			// us to surface these instead of dropping them, so we
-			// produce a meta system message wrapping an UnknownBlock
-			// with the original raw line.
+			// We do not know this record type. The resilience rule
+			// says to keep it visible, so we wrap the original line
+			// in an UnknownBlock and the renderer surfaces it.
 			messages = append(messages, contracts.Message{
 				ID:        contracts.MessageID(record.UUID),
 				ParentID:  contracts.MessageID(record.ParentUUID),
@@ -143,14 +143,23 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 	}, nil
 }
 
-// rawRecord captures the envelope fields chronicle reads straight
-// from each JSONL line. Anything else stays in the json.RawMessage
-// fields, ready to be decoded later once we know what shape to
-// expect. The struct tags map JSON keys to Go field names. The
-// lowercase "line" field at the bottom is unexported, so the JSON
-// decoder ignores it. We set it ourselves right after the decode,
-// which is what lets the unknown-record branch in parseStream keep
-// the original bytes around.
+// rawRecord holds the small set of fields we read straight from
+// every JSONL line. The message body itself stays as raw JSON in
+// the Message field, because the right shape to decode it into
+// depends on whether the record is a user message or an assistant
+// message.
+//
+// The bits in backticks at the end of each field are called struct
+// tags. They tell the JSON decoder which key to read from. Without
+// them, Go would look for a JSON key called "Type" rather than
+// "type", and the decode would silently set the field to the empty
+// value.
+//
+// The lowercase "line" field at the bottom does not have a tag.
+// Lowercase fields in Go are private to the package, and the JSON
+// decoder ignores them. We set it ourselves right after the decode,
+// so the unknown-record branch in parseStream can keep the original
+// line of text around for the renderer.
 type rawRecord struct {
 	Type        string          `json:"type"`
 	UUID        string          `json:"uuid"`
@@ -164,11 +173,12 @@ type rawRecord struct {
 	line        string
 }
 
-// userBody and assistantBody describe the two shapes the embedded
-// message payload can take. Both are intentionally permissive:
-// missing fields decode as zero values, and unknown fields are
-// ignored by the JSON decoder. That permissiveness is what lets the
-// parser cope with new fields Claude might add in a future release.
+// userBody and assistantBody are the two shapes the embedded message
+// body can take. Both are written to be forgiving. A field that is
+// not in the JSON decodes as the empty value, and a key in the JSON
+// that we do not list as a field is ignored. Forgiving decoders are
+// what let chronicle keep working when Claude adds a new field in a
+// future release.
 type userBody struct {
 	Role    string          `json:"role"`
 	Content json.RawMessage `json:"content"`
@@ -179,12 +189,10 @@ type assistantBody struct {
 	Content json.RawMessage `json:"content"`
 }
 
-// parseUserRecord turns one user-typed JSONL record into a
-// contracts.Message. We decode the embedded message body into a
-// userBody first, then hand the content field to decodeUserContent,
-// which knows how to handle both shapes Claude uses for user content
-// (a bare string for simple prompts, an array of typed parts for
-// anything richer).
+// parseUserRecord turns one user-typed record into a Message. The
+// embedded body is decoded into a userBody first, and the content
+// field is then handed to decodeUserContent, which knows about the
+// two shapes Claude uses for user content.
 func parseUserRecord(record rawRecord, ts time.Time) contracts.Message {
 	var body userBody
 	_ = json.Unmarshal(record.Message, &body)
@@ -201,9 +209,10 @@ func parseUserRecord(record rawRecord, ts time.Time) contracts.Message {
 	}
 }
 
-// parseAssistantRecord turns one assistant-typed JSONL record into a
-// contracts.Message. Assistant content is always an array of typed
-// parts in Claude's storage, so we go straight to decodeAssistantContent.
+// parseAssistantRecord turns one assistant-typed record into a
+// Message. Assistant content is always an array of typed parts in
+// Claude's storage, so we go straight to decodeAssistantContent
+// without the shape check that decodeUserContent has to do.
 func parseAssistantRecord(record rawRecord, ts time.Time) contracts.Message {
 	var body assistantBody
 	_ = json.Unmarshal(record.Message, &body)
@@ -221,11 +230,15 @@ func parseAssistantRecord(record rawRecord, ts time.Time) contracts.Message {
 }
 
 // decodeUserContent handles the two shapes Claude writes for user
-// messages. A simple text prompt comes in as a bare JSON string, like
-// "How do I read a file?", and a richer message comes in as an array
-// of typed parts that can mix text, tool_result, and image blocks.
-// We decide which shape we are looking at by peeking at the first
-// byte: a string starts with a double-quote character.
+// content. A simple text prompt comes in as a plain string, like
+// "How do I read a file?". A richer message comes in as an array
+// of typed parts, with text, tool results, or images mixed in.
+//
+// We tell the two shapes apart by looking at the first byte. A JSON
+// string always starts with a double quote, and an array always
+// starts with a bracket. So a leading quote means "this is a plain
+// string" and we decode it as one. Anything else means "this is an
+// array" and we hand it to decodePartArray.
 func decodeUserContent(raw json.RawMessage) []contracts.Block {
 	if len(raw) == 0 {
 		return nil
@@ -242,8 +255,8 @@ func decodeUserContent(raw json.RawMessage) []contracts.Block {
 
 // decodeAssistantContent always handles an array of parts, because
 // assistant messages in Claude's storage always come in that shape.
-// The function exists as its own helper to keep the parseAssistantRecord
-// path symmetric with parseUserRecord.
+// The function is its own helper so the assistant path reads the
+// same way as the user path.
 func decodeAssistantContent(raw json.RawMessage) []contracts.Block {
 	if len(raw) == 0 {
 		return nil
@@ -251,11 +264,11 @@ func decodeAssistantContent(raw json.RawMessage) []contracts.Block {
 	return decodePartArray(raw)
 }
 
-// decodePartArray decodes a JSON array of typed content parts and
-// returns the corresponding Block slice. Each part has its own JSON
-// shape, so we delegate the per-part decoding to decodePart. Any
-// part decodePart cannot recognize comes back as an UnknownBlock,
-// which keeps the resilience contract honored.
+// decodePartArray takes a JSON array of content parts and returns
+// the matching Block values. Each part has its own shape, so we
+// decode the array first and then ask decodePart to handle each
+// part one at a time. Parts that decodePart does not recognize come
+// back as UnknownBlock values, so we never lose unfamiliar content.
 func decodePartArray(raw json.RawMessage) []contracts.Block {
 	var parts []json.RawMessage
 	if err := json.Unmarshal(raw, &parts); err != nil {
@@ -270,12 +283,13 @@ func decodePartArray(raw json.RawMessage) []contracts.Block {
 	return out
 }
 
-// decodePart decodes one content part into a Block. We start by
-// reading just the "type" field to find out which shape to expect,
-// then decode the rest into the right concrete struct. A part with
-// a type chronicle does not recognize comes back as an UnknownBlock
-// carrying the original raw JSON, so the renderer can still surface
-// it to the user for inspection.
+// decodePart turns one content part into a Block. Each part has a
+// "type" field that tells us what kind of part it is, like "text"
+// or "tool_use" or "image". We read that field first. Once we know
+// the kind, we decode the rest of the part into the matching
+// struct. If the kind is one chronicle does not recognize, we wrap
+// the original raw JSON in an UnknownBlock so the renderer can
+// still show it to the user.
 func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 	var head struct {
 		Type string `json:"type"`
@@ -335,11 +349,14 @@ func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 	}
 }
 
-// flattenToolResultContent accepts either a plain string or an array
-// of {type:"text", text:"..."} parts and returns the concatenated
-// text. Claude stores tool results in one shape or the other
-// depending on which tool produced them, and the rest of chronicle
-// works with a single string regardless of which one we started with.
+// flattenToolResultContent takes the "content" field of a tool
+// result and returns it as a single string. Claude writes this
+// content in two different shapes depending on which tool produced
+// the result. Some tools write a plain string. Others write an
+// array of small parts that look like {type:"text", text:"..."}.
+// The rest of chronicle only ever works with one string per
+// result, so this helper picks whichever shape was used and turns
+// it into that string.
 func flattenToolResultContent(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""

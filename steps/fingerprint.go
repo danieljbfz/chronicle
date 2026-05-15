@@ -32,17 +32,17 @@ type FingerprintInput struct {
 	Keys []string
 }
 
-// Fingerprint computes a short, stable hex hash that describes the
-// schema shape of a session file. Two files with the same set of
-// (record type, key set) pairs produce the same fingerprint, so the
-// adapters can map fingerprints to known versions through a small
-// lookup table without parsing every record.
+// Fingerprint returns a short, stable hex hash that describes the
+// shape of a session file. Two files with the same set of (record
+// type, key set) pairs produce the same fingerprint. Adapters use
+// the fingerprint as a key into a small lookup table that maps
+// known shapes to internal version names.
 //
-// Adapters cap their input at the first couple of hundred records, so
-// the fingerprint reflects the variety of shapes in the file rather
-// than its length. Reading more would not change the hash, because
-// the first records carry every record type the file uses in
-// practice.
+// Adapters do not feed the whole file into Fingerprint. They cap
+// the input at the first couple of hundred records, because the
+// first records already cover every record type a real file uses.
+// Feeding more in would not change the hash, and it would slow
+// down detection on large files for no benefit.
 func Fingerprint(inputs []FingerprintInput) string {
 	// Step 1: deduplicate the (Type, sorted Keys) tuples. We need
 	// uniqueness because a single session file has hundreds of

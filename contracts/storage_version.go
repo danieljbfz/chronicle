@@ -15,14 +15,17 @@ type StorageVersion struct {
 	Capabilities Capabilities
 }
 
-// Capabilities describes what an adapter understands about the storage
-// it has just inspected. The user interface keys its feature toggles
-// off these capability flags rather than off the version string,
-// because new versions of an upstream tool sometimes add a feature an
-// existing adapter already knows how to expose. Branching on the
-// version string would force a release of chronicle every time we
-// recognized a new fingerprint, while branching on capabilities lets
-// the fingerprint table grow without anything else changing.
+// Capabilities describes what an adapter understands about the
+// storage it just looked at. The user interface checks these flags
+// to decide which features to show, rather than checking the
+// version string.
+//
+// Why? Because new versions of an upstream tool sometimes add a
+// feature the existing adapter already knows how to handle. If the
+// UI branched on the version string, we would have to ship a new
+// chronicle release every time we added a fingerprint to the
+// table. With capability flags, the fingerprint table can grow
+// without changing the rest of the code.
 type Capabilities struct {
 	ThreadTree         bool
 	EditingSessions    bool

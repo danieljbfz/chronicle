@@ -5,23 +5,29 @@ import (
 	"io"
 )
 
-// OSC52Sequence returns the terminal escape sequence that loads the
-// given text into the system clipboard through the OSC 52 protocol.
-// Modern terminals like iTerm2, kitty, WezTerm, Alacritty, and recent
-// versions of xterm and gnome-terminal all support OSC 52, and the
-// headline benefit is that it works transparently over SSH. The
-// escape bytes travel as part of the terminal stream, so the local
-// terminal — the one with access to the user's clipboard — is the one
-// that interprets them and performs the copy.
+// OSC52Sequence returns the terminal escape sequence that copies
+// the given text into the system clipboard. The escape sequence is
+// part of a terminal protocol called OSC 52, supported by modern
+// terminals like iTerm2, kitty, WezTerm, Alacritty, and recent
+// versions of xterm and gnome-terminal.
 //
-// The sequence has four parts. ESC opens an Operating System Command,
-// the literal "52;c;" identifies it as a clipboard write to the
-// system selection (the "c" picks the system clipboard rather than
-// X's primary or secondary selection, which most macOS users do not
-// have a use for), the base64-encoded payload follows, and the BEL
-// byte terminates the sequence. We base64-encode the payload because
-// the OSC 52 specification requires it and because base64 keeps
-// binary or multi-byte text intact through the terminal stream.
+// The big win of OSC 52 is that it works over SSH. The escape
+// bytes travel as part of the terminal stream, so it is the local
+// terminal (the one connected to the user's clipboard) that
+// receives them and performs the copy. The remote machine never
+// touches anything clipboard-related.
+//
+// The sequence itself is made of four parts.
+//
+//	1. ESC, the byte that opens an Operating System Command.
+//	2. The literal "52;c;", which says "this is a clipboard write
+//	   to the system selection". The "c" picks the system clipboard.
+//	   X11 has two other clipboards called primary and secondary,
+//	   but most macOS users have no use for either of them.
+//	3. The text to copy, encoded in base64. The OSC 52 spec requires
+//	   base64, and using it also keeps multi-byte or binary text
+//	   intact through the terminal stream.
+//	4. BEL, the byte that closes the sequence.
 func OSC52Sequence(text string) string {
 	encoded := base64.StdEncoding.EncodeToString([]byte(text))
 	return "\x1b]52;c;" + encoded + "\x07"
