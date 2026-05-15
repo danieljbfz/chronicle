@@ -15,11 +15,22 @@ import (
 // orphans on disk that the user has no idea exist.
 const chatEditingSessionsDir = "chatEditingSessions"
 
-// categoryCopilotSession is the label every per-session deletion
-// plan carries, mirroring the Claude adapter's shape. The trash
-// listing uses it to group entries that came from the same kind
-// of operation.
-const categoryCopilotSession = "copilot-session"
+// Labels we attach to deletion plans and their items. Every
+// string a user sees in chronicle's clean and trash output for
+// Copilot comes from one of these constants, so a rename here
+// is a rename everywhere. Tests reference the same constants
+// to confirm the labels are right, so a typo cannot drift
+// between the code and the assertions.
+const (
+	categoryCopilotSession = "copilot-session"
+	categoryCopilotOrphans = "copilot-orphans"
+
+	reasonSessionFileWorkspace = "session file"
+	reasonSessionFileEmptyWin  = "session file (folder-less window)"
+	reasonEditSnapshots        = "edit snapshots"
+	reasonOrphanEditSnapshots  = "orphaned edit snapshots"
+	reasonOrphanCLIImage       = "orphaned Copilot CLI image"
+)
 
 // PlanDelete returns the cascade plan for deleting one Copilot
 // chat session. The plan includes the session's .jsonl file
@@ -53,7 +64,7 @@ func (p *Provider) PlanDelete(root fs.FS, id contracts.SessionID) (contracts.Del
 			SessionID: id,
 			Category:  categoryCopilotSession,
 		}
-		addItem(root, &plan, file, "session file (folder-less window)")
+		addItem(root, &plan, file, reasonSessionFileEmptyWin)
 		return plan, nil
 	}
 
@@ -71,9 +82,9 @@ func planDeleteWorkspaceSession(root fs.FS, id contracts.SessionID, sessionFile 
 		SessionID: id,
 		Category:  categoryCopilotSession,
 	}
-	addItem(root, &plan, sessionFile, "session file")
+	addItem(root, &plan, sessionFile, reasonSessionFileWorkspace)
 	editingDir := path.Join(workspaceStorageDir, string(workspace), chatEditingSessionsDir, string(id))
-	addItem(root, &plan, editingDir, "edit snapshots")
+	addItem(root, &plan, editingDir, reasonEditSnapshots)
 	return plan
 }
 
@@ -89,12 +100,12 @@ func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
 	workspaces, err := fs.ReadDir(root, workspaceStorageDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return contracts.DeletePlan{Category: "copilot-orphans"}, nil
+			return contracts.DeletePlan{Category: categoryCopilotOrphans}, nil
 		}
 		return contracts.DeletePlan{}, newError("plan orphan scan", workspaceStorageDir, err)
 	}
 
-	plan := contracts.DeletePlan{Category: "copilot-orphans"}
+	plan := contracts.DeletePlan{Category: categoryCopilotOrphans}
 	for _, ws := range workspaces {
 		if !ws.IsDir() {
 			continue
@@ -135,7 +146,7 @@ func scanWorkspaceOrphans(root fs.FS, workspace string, plan *contracts.DeletePl
 		if known[entry.Name()] {
 			continue
 		}
-		addItem(root, plan, path.Join(editingRoot, entry.Name()), "orphaned edit snapshots")
+		addItem(root, plan, path.Join(editingRoot, entry.Name()), reasonOrphanEditSnapshots)
 	}
 	return nil
 }

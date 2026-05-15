@@ -23,7 +23,7 @@ func TestPlanOrphanScan_findsPasteCacheOrphans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pasteOrphans := filterByReason(plan.Items, "orphaned paste-cache entry")
+	pasteOrphans := filterByReason(plan.Items, reasonOrphanPaste)
 	if len(pasteOrphans) != 1 {
 		t.Fatalf("got %d paste orphans, want 1", len(pasteOrphans))
 	}
@@ -45,7 +45,7 @@ func TestPlanOrphanScan_skipsPasteCacheWhenHistoryMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pasteOrphans := filterByReason(plan.Items, "orphaned paste-cache entry")
+	pasteOrphans := filterByReason(plan.Items, reasonOrphanPaste)
 	if len(pasteOrphans) != 0 {
 		t.Errorf("got %d paste orphans, want 0 when history.jsonl is missing", len(pasteOrphans))
 	}
@@ -66,7 +66,7 @@ func TestPlanOrphanScan_findsSecurityWarningOrphans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	warningOrphans := filterByReason(plan.Items, "orphaned security warning state")
+	warningOrphans := filterByReason(plan.Items, reasonOrphanWarning)
 	if len(warningOrphans) != 2 {
 		t.Errorf("got %d warning orphans, want 2", len(warningOrphans))
 	}
@@ -98,7 +98,7 @@ func TestPlanOrphanScan_keepsRecentShellSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshotOrphans := filterByReason(plan.Items, "old shell snapshot")
+	snapshotOrphans := filterByReason(plan.Items, reasonOrphanShellSnap)
 	if len(snapshotOrphans) != 2 {
 		t.Fatalf("got %d snapshot orphans, want 2", len(snapshotOrphans))
 	}
@@ -124,7 +124,7 @@ func TestPlanOrphanScan_skipsSnapshotsBelowKeepCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshotOrphans := filterByReason(plan.Items, "old shell snapshot")
+	snapshotOrphans := filterByReason(plan.Items, reasonOrphanShellSnap)
 	if len(snapshotOrphans) != 0 {
 		t.Errorf("got %d snapshot orphans with three files, want 0", len(snapshotOrphans))
 	}
@@ -150,7 +150,7 @@ func TestPlanOrphanScan_keepsRecentBackups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	backupOrphans := filterByReason(plan.Items, "old configuration backup")
+	backupOrphans := filterByReason(plan.Items, reasonOrphanBackup)
 	if len(backupOrphans) != 2 {
 		t.Fatalf("got %d backup orphans, want 2", len(backupOrphans))
 	}

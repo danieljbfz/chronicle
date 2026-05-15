@@ -77,7 +77,7 @@ func scanCLIImageOrphans(root fs.FS, plan *contracts.DeletePlan) {
 		if hasKnownSessionPrefix(name, known) {
 			continue
 		}
-		addItem(root, plan, path.Join(copilotCLIImagesDir, name), "orphaned Copilot CLI image")
+		addItem(root, plan, path.Join(copilotCLIImagesDir, name), reasonOrphanCLIImage)
 	}
 }
 

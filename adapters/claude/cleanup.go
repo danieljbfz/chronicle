@@ -45,10 +45,30 @@ const (
 	sessionEnvDir  = "session-env"
 )
 
-// categoryClaudeSession is the label every per-session deletion
-// plan carries. The trash listing uses it to group entries that
-// came from the same kind of operation.
-const categoryClaudeSession = "claude-session"
+// Labels we attach to deletion plans and their items. Every
+// string a user sees in chronicle's clean and trash output
+// comes from one of these constants, so a rename here is a
+// rename everywhere. Tests reference the same constants to
+// confirm the labels are right, so a typo cannot drift between
+// the code and the assertions.
+const (
+	categoryClaudeSession = "claude-session"
+	categoryClaudeOrphans = "claude-orphans"
+
+	reasonSessionFile       = "session file"
+	reasonSessionCompanion  = "session companion (subagents, tool results)"
+	reasonFileHistory       = "file history"
+	reasonTaskState         = "task state"
+	reasonCapturedEnv       = "captured environment"
+	reasonOrphanFileHistory = "orphaned file history"
+	reasonOrphanTaskState   = "orphaned task state"
+	reasonOrphanCapturedEnv = "orphaned environment capture"
+	reasonOrphanCompanion   = "orphaned session companion"
+	reasonOrphanPaste       = "orphaned paste-cache entry"
+	reasonOrphanWarning     = "orphaned security warning state"
+	reasonOrphanShellSnap   = "old shell snapshot"
+	reasonOrphanBackup      = "old configuration backup"
+)
 
 // PlanDelete returns the cascade plan for deleting one Claude
 // session. The plan lists every artifact that session owns on
@@ -88,7 +108,7 @@ func (p *Provider) PlanDelete(root fs.FS, id contracts.SessionID) (contracts.Del
 	// addItem (below) to skip silently when something is
 	// missing, which lets us list every potential sibling and
 	// only keep the ones that really exist.
-	addItem(root, &plan, sessionFile, "session file")
+	addItem(root, &plan, sessionFile, reasonSessionFile)
 
 	// The companion directory sits next to the .jsonl file and
 	// shares its parent. We strip the .jsonl suffix to find it.
@@ -97,14 +117,14 @@ func (p *Provider) PlanDelete(root fs.FS, id contracts.SessionID) (contracts.Del
 	// session ages out, so chronicle picking it up is one of the
 	// most concrete reasons our cleanup beats waiting 30 days.
 	companion := strings.TrimSuffix(sessionFile, ".jsonl")
-	addItem(root, &plan, companion, "session companion (subagents, tool results)")
+	addItem(root, &plan, companion, reasonSessionCompanion)
 
 	// The siblings under the Claude root, each keyed by the
 	// session UUID. Some are files, some are directories.
 	// addItem handles both shapes.
-	addItem(root, &plan, path.Join(fileHistoryDir, string(id)), "file history")
-	addItem(root, &plan, path.Join(tasksDir, string(id)), "task state")
-	addItem(root, &plan, path.Join(sessionEnvDir, string(id)), "captured environment")
+	addItem(root, &plan, path.Join(fileHistoryDir, string(id)), reasonFileHistory)
+	addItem(root, &plan, path.Join(tasksDir, string(id)), reasonTaskState)
+	addItem(root, &plan, path.Join(sessionEnvDir, string(id)), reasonCapturedEnv)
 
 	return plan, nil
 }
@@ -130,7 +150,7 @@ func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
 	}
 
 	plan := contracts.DeletePlan{
-		Category: "claude-orphans",
+		Category: categoryClaudeOrphans,
 	}
 	for _, sibling := range orphanSiblings {
 		entries, err := fs.ReadDir(root, sibling.dir)
@@ -210,7 +230,7 @@ func scanCompanionOrphans(root fs.FS, knownSessions map[string]bool, plan *contr
 			if knownSessions[name] {
 				continue
 			}
-			addItem(root, plan, path.Join(projectPath, name), "orphaned session companion")
+			addItem(root, plan, path.Join(projectPath, name), reasonOrphanCompanion)
 		}
 	}
 }
@@ -228,9 +248,9 @@ type orphanSibling struct {
 // an orphan scan. Adding a new sibling to the cascade map is one
 // new entry here.
 var orphanSiblings = []orphanSibling{
-	{dir: fileHistoryDir, reason: "orphaned file history"},
-	{dir: tasksDir, reason: "orphaned task state"},
-	{dir: sessionEnvDir, reason: "orphaned environment capture"},
+	{dir: fileHistoryDir, reason: reasonOrphanFileHistory},
+	{dir: tasksDir, reason: reasonOrphanTaskState},
+	{dir: sessionEnvDir, reason: reasonOrphanCapturedEnv},
 }
 
 // collectKnownSessionIDs walks the projects directory and returns

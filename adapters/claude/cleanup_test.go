@@ -95,8 +95,8 @@ func TestPlanDelete_omitsMissingSiblings(t *testing.T) {
 	if len(plan.Items) != 1 {
 		t.Errorf("plan items = %d, want 1 (just the .jsonl)", len(plan.Items))
 	}
-	if plan.Items[0].Reason != "session file" {
-		t.Errorf("reason = %q, want session file", plan.Items[0].Reason)
+	if plan.Items[0].Reason != reasonSessionFile {
+		t.Errorf("reason = %q, want %q", plan.Items[0].Reason, reasonSessionFile)
 	}
 }
 
@@ -131,14 +131,14 @@ func TestPlanOrphanScan_findsSiblingOrphans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	siblings := filterByReason(plan.Items, "orphaned file history")
-	siblings = append(siblings, filterByReason(plan.Items, "orphaned task state")...)
-	siblings = append(siblings, filterByReason(plan.Items, "orphaned environment capture")...)
+	siblings := filterByReason(plan.Items, reasonOrphanFileHistory)
+	siblings = append(siblings, filterByReason(plan.Items, reasonOrphanTaskState)...)
+	siblings = append(siblings, filterByReason(plan.Items, reasonOrphanCapturedEnv)...)
 	if len(siblings) != 3 {
 		t.Errorf("sibling orphans = %d, want 3; got %#v", len(siblings), siblings)
 	}
-	if plan.Category != "claude-orphans" {
-		t.Errorf("category = %q, want claude-orphans", plan.Category)
+	if plan.Category != categoryClaudeOrphans {
+		t.Errorf("category = %q, want %q", plan.Category, categoryClaudeOrphans)
 	}
 }
 
@@ -169,7 +169,7 @@ func TestPlanOrphanScan_findsCompanionOrphans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	companions := filterByReason(plan.Items, "orphaned session companion")
+	companions := filterByReason(plan.Items, reasonOrphanCompanion)
 	if len(companions) != 1 {
 		t.Fatalf("companion orphans = %d, want 1 (just the deadUUID one); got %#v", len(companions), companions)
 	}

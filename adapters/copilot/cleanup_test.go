@@ -75,8 +75,8 @@ func TestPlanDelete_emptyWindowSession(t *testing.T) {
 	if len(plan.Items) != 1 {
 		t.Fatalf("plan items = %d, want 1", len(plan.Items))
 	}
-	if plan.Items[0].Reason != "session file (folder-less window)" {
-		t.Errorf("reason = %q, want a folder-less marker", plan.Items[0].Reason)
+	if plan.Items[0].Reason != reasonSessionFileEmptyWin {
+		t.Errorf("reason = %q, want %q", plan.Items[0].Reason, reasonSessionFileEmptyWin)
 	}
 }
 

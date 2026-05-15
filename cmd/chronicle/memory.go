@@ -27,8 +27,8 @@ import (
 //
 // All four subcommands work across every provider that
 // implements the contracts.MemoryStore optional interface.
-// Today only Claude does, but the surface is ready for
-// any future tool that ships per-project memory.
+// Today only Claude does, but the surface is ready for any
+// future tool that ships per-project memory.
 func newMemoryCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "memory",
@@ -106,8 +106,7 @@ func writeMemoryList(w io.Writer, entries []composition.MemoryListing) error {
 // The output goes to stdout, ready to pipe into a pager
 // (`chronicle memory show ... | less`) or grep.
 func newMemoryShowCmd() *cobra.Command {
-	var providerFlag string
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "show <project> <file>",
 		Short: "Print one memory file to stdout",
 		Args:  cobra.ExactArgs(2),
@@ -117,14 +116,12 @@ func newMemoryShowCmd() *cobra.Command {
 				return fail("init: %v", err)
 			}
 			project, fileName := contracts.ProjectID(args[0]), args[1]
-			if err := app.ShowMemory(providerFlag, project, fileName, cmd.OutOrStdout()); err != nil {
+			if err := app.ShowMemory(project, fileName, cmd.OutOrStdout()); err != nil {
 				return fail("show: %v", err)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&providerFlag, "provider", "", `Disambiguate when more than one provider has memory for the project`)
-	return cmd
 }
 
 // newMemoryEditCmd builds `chronicle memory edit <project> <file>`.
@@ -139,8 +136,7 @@ func newMemoryShowCmd() *cobra.Command {
 // configured at least gets a working editor instead of an
 // error message.
 func newMemoryEditCmd() *cobra.Command {
-	var providerFlag string
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "edit <project> <file>",
 		Short: "Open one memory file in $EDITOR",
 		Args:  cobra.ExactArgs(2),
@@ -150,7 +146,7 @@ func newMemoryEditCmd() *cobra.Command {
 				return fail("init: %v", err)
 			}
 			project, fileName := contracts.ProjectID(args[0]), args[1]
-			fullPath, err := app.EditMemoryPath(providerFlag, project, fileName)
+			fullPath, err := app.EditMemoryPath(project, fileName)
 			if err != nil {
 				return fail("edit: %v", err)
 			}
@@ -168,8 +164,6 @@ func newMemoryEditCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&providerFlag, "provider", "", `Disambiguate when more than one provider has memory for the project`)
-	return cmd
 }
 
 // newMemoryCleanCmd builds `chronicle memory clean <project>`.
@@ -180,10 +174,7 @@ func newMemoryEditCmd() *cobra.Command {
 // regretted clean can be undone with `chronicle trash
 // restore <id>` until the trash entry ages out.
 func newMemoryCleanCmd() *cobra.Command {
-	var (
-		apply        bool
-		providerFlag string
-	)
+	var apply bool
 	cmd := &cobra.Command{
 		Use:   "clean <project>",
 		Short: "Move every memory file in one project into the trash (dry-run by default)",
@@ -194,7 +185,7 @@ func newMemoryCleanCmd() *cobra.Command {
 				return fail("init: %v", err)
 			}
 			project := contracts.ProjectID(args[0])
-			planned, err := app.CleanProjectMemory(providerFlag, project)
+			planned, err := app.CleanProjectMemory(project)
 			if err != nil {
 				return fail("plan: %v", err)
 			}
@@ -202,6 +193,5 @@ func newMemoryCleanCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&apply, "apply", false, "Actually move files (default is dry-run)")
-	cmd.Flags().StringVar(&providerFlag, "provider", "", `Disambiguate when more than one provider has memory for the project`)
 	return cmd
 }
