@@ -21,7 +21,7 @@ Every command runs read-only by default. Anything destructive defaults to dry-ru
 
 - `chronicle list` — list every session across every detected provider, one JSON line per session.
 - `chronicle doctor` — show detected providers, their versions, and any format warnings.
-- `chronicle stats` — one-screen summary of session counts, message counts, disk usage, and the active date range. `--json` for machine-readable output.
+- `chronicle stats` — one-screen summary of session counts, message counts, disk usage, and the active date range. `--by-model` adds a breakdown by model identifier, and `--json` emits machine-readable output.
 - `chronicle search <query>` — substring search across every session of every provider. Snippet-based results with `--json` for piping.
 
 ### Export and copy

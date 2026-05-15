@@ -87,23 +87,21 @@ schema, possibly a new adapter package.
 **Risk: low.** Read-only by default. Same architectural pattern as the
 existing adapter.
 
-### `chronicle stats --by-model`
+### ~~`chronicle stats --by-model`~~ (shipped)
 
 The user's session JSONL files carry a `model` field. Sessions routed
 through MiniMax (or any other Anthropic-API-compatible backend) carry
 a different value than native Claude sessions. A `--by-model`
-breakdown would tell the user how their session count, message count,
-and disk usage split across models.
+breakdown tells the user how their session count, message count, and
+disk usage split across models.
 
-The provider audit confirmed this is a uniform concept across both
-tools (every session knows what model served it), so the chronicle
-abstraction is just "a string the user might want to filter on" — a
-new field on `SessionSummary`, not a new capability interface.
-
-**Cost: small.** Add the field to `SessionSummary`, populate it in
-each adapter's parse path, render the breakdown in stats.
-
-**Risk: none.** Read-only addition.
+All three adapters now populate `contracts.SessionSummary.Model`. The
+Claude adapter uses the most-frequent per-message value, the copilot-
+agent adapter reads the single `selectedModel` from `session.start`,
+and the copilot-chat adapter reads
+`inputState.selectedModel.identifier` from the replayed snapshot.
+Sessions whose adapter cannot determine a model land under
+`(unknown)` in the renderer.
 
 ## Maybe
 
@@ -180,14 +178,13 @@ small follow-up. The remaining choices are about strategic direction.
 
 The recommended order:
 
-1. **Copilot CLI session surface.** This is a real coverage gap:
-   chronicle today sees only the VS Code Chat side of Copilot, not
-   the `~/.copilot/session-state/` side. Closing this is the most
-   provider-agnostic thing we can do because it brings Copilot's
-   coverage closer to Claude's.
-2. **`chronicle stats --by-model`.** Small, surfaces the
-   MiniMax-vs-Claude split, principled (it adds a field, not a
-   capability).
+1. ~~**Copilot CLI session surface.**~~ (shipped) The
+   `~/.copilot/session-state/` side now has its own adapter
+   (`copilot-agent`) alongside the VS Code Chat adapter
+   (`copilot-chat`). Coverage is on par with Claude.
+2. ~~**`chronicle stats --by-model`.**~~ (shipped) Surfaces the
+   MiniMax-vs-Claude split using the populated
+   `SessionSummary.Model` field across every adapter.
 3. **TUI** as the next big presentation layer over a now-stable
    capability surface. A TUI built today wraps a frozen feature set
    rather than chasing a moving target.
