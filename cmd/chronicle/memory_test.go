@@ -57,6 +57,7 @@ func (s memoryProviderStub) ListGlobalMemory(fs.FS) ([]contracts.GlobalMemoryFil
 	return []contracts.GlobalMemoryFile{{FileName: "CLAUDE.md", SizeBytes: 20}}, nil
 }
 func (memoryProviderStub) GlobalMemoryFilePath(name string) string { return name }
+func (memoryProviderStub) DefaultGlobalMemoryFile() string         { return "CLAUDE.md" }
 func (memoryProviderStub) PlanDeleteGlobalMemory(fs.FS) (contracts.DeletePlan, error) {
 	return contracts.DeletePlan{Category: "stub-global-memory"}, nil
 }

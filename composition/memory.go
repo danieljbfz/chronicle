@@ -263,3 +263,22 @@ func (a *App) findGlobalMemoryStore() (*providerEntry, contracts.GlobalMemorySto
 	}
 	return nil, nil, errors.New("no registered provider supports user-global memory")
 }
+
+// DefaultGlobalMemoryFile returns the canonical filename
+// the active provider uses for its user-global memory. The
+// CLI calls this when the user runs `chronicle memory show
+// --global` without naming a file, so each provider's own
+// convention drives the default rather than a hardcoded
+// CLI-side value.
+//
+// Returns an error when no provider implements
+// GlobalMemoryStore. That is the same error the show, edit,
+// and clean methods would surface, so the CLI can present
+// it once consistently.
+func (a *App) DefaultGlobalMemoryFile() (string, error) {
+	_, store, err := a.findGlobalMemoryStore()
+	if err != nil {
+		return "", err
+	}
+	return store.DefaultGlobalMemoryFile(), nil
+}

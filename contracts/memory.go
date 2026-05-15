@@ -105,6 +105,18 @@ type GlobalMemoryStore interface {
 	// find the file on disk for reading or editing.
 	GlobalMemoryFilePath(fileName string) string
 
+	// DefaultGlobalMemoryFile is the canonical filename the
+	// CLI assumes when the user asks for the global file
+	// without naming one. Each provider returns the name
+	// its tool actually uses (Claude returns "CLAUDE.md", a
+	// hypothetical Cursor adapter would return "CURSOR.md").
+	// Returning this through the interface keeps the
+	// provider-specific default out of the CLI layer, so
+	// the CLI stays provider-agnostic and can dispatch
+	// across adapters without learning each one's
+	// conventions.
+	DefaultGlobalMemoryFile() string
+
 	// PlanDeleteGlobalMemory returns a deletion plan for
 	// every user-global memory file the provider exposes.
 	// The plan goes through chronicle's normal trash flow,

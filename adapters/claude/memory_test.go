@@ -193,6 +193,18 @@ func TestGlobalMemoryFilePath_returnsTheNameUnchanged(t *testing.T) {
 	}
 }
 
+// TestDefaultGlobalMemoryFile_returnsClaudeMd pins the
+// adapter's declared default. The CLI dispatches into this
+// when the user runs `chronicle memory show --global`
+// without naming a file. Pinning the value here means the
+// CLI's --global default cannot drift away from what Claude
+// itself reads on disk without the test catching it.
+func TestDefaultGlobalMemoryFile_returnsClaudeMd(t *testing.T) {
+	if got := New().DefaultGlobalMemoryFile(); got != "CLAUDE.md" {
+		t.Errorf("DefaultGlobalMemoryFile = %q, want CLAUDE.md", got)
+	}
+}
+
 // TestPlanDeleteGlobalMemory_picksUpTheKnownFile confirms a
 // fixture with CLAUDE.md produces a plan with one item.
 // Categories matter for the trash listing later, so we

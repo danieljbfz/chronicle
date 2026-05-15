@@ -110,38 +110,20 @@ func writeMemoryList(w io.Writer, entries []composition.MemoryListing) error {
 	return nil
 }
 
-// defaultGlobalMemoryFile is the filename chronicle assumes
-// when the user passes --global without a name. Today
-// CLAUDE.md is the only canonical user-global memory file, so
-// asking the user to type it every time would be friction
-// without choice. If they want a different name, they can
-// pass it positionally and we honour it.
-//
-// This intentionally duplicates the adapter's own canonical
-// filename rather than importing it. The adapter constant
-// names the file as it lives on disk. This constant names
-// the CLI's user-experience default. They happen to be the
-// same string today, but the two roles are distinct: a
-// future provider that exposes a global file under a
-// different name would still want the CLI default to be
-// "CLAUDE.md" because that is what every Claude user will
-// type. Composition (not the CLI) is the right boundary
-// for any cross-provider name resolution if it becomes
-// necessary later.
-const defaultGlobalMemoryFile = "CLAUDE.md"
-
 // newMemoryShowCmd builds `chronicle memory show`. The
 // command has two shapes:
 //
 //	chronicle memory show <project> <file>      # per-project
 //	chronicle memory show --global [<file>]     # user-global
 //
-// The --global flag picks the user-wide memory file (such as
-// ~/.claude/CLAUDE.md). When the flag is set, the positional
-// project argument is dropped and the filename defaults to
-// CLAUDE.md. The two shapes route through different
-// composition methods so the contracts layer can keep the
-// per-project and global capabilities separate.
+// The --global flag picks the user-wide memory file (the
+// adapter decides the canonical name, like CLAUDE.md for
+// Claude). When the flag is set, the positional project
+// argument is dropped and the filename defaults to whatever
+// the active provider declares. The two shapes route
+// through different composition methods so the contracts
+// layer can keep the per-project and global capabilities
+// separate.
 func newMemoryShowCmd() *cobra.Command {
 	var global bool
 	cmd := &cobra.Command{
@@ -154,9 +136,9 @@ func newMemoryShowCmd() *cobra.Command {
 				return fail("init: %v", err)
 			}
 			if global {
-				fileName := defaultGlobalMemoryFile
-				if len(args) >= 1 {
-					fileName = args[0]
+				fileName, err := resolveGlobalMemoryName(app, args)
+				if err != nil {
+					return fail("show: %v", err)
 				}
 				if err := app.ShowGlobalMemory(fileName, cmd.OutOrStdout()); err != nil {
 					return fail("show: %v", err)
@@ -173,8 +155,22 @@ func newMemoryShowCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&global, "global", false, "Show the user-wide memory file (defaults to CLAUDE.md)")
+	cmd.Flags().BoolVar(&global, "global", false, "Show the user-wide memory file (the active provider names the default)")
 	return cmd
+}
+
+// resolveGlobalMemoryName picks the global memory filename
+// from either the user-supplied positional argument or, if
+// none was given, the active provider's declared default.
+// We centralise this so the show, edit, and clean commands
+// share one consistent rule for "what does --global without
+// a name mean?" and so the per-command bodies stay focused
+// on their own work.
+func resolveGlobalMemoryName(app *composition.App, args []string) (string, error) {
+	if len(args) >= 1 {
+		return args[0], nil
+	}
+	return app.DefaultGlobalMemoryFile()
 }
 
 // newMemoryEditCmd builds `chronicle memory edit`. Same
@@ -222,7 +218,7 @@ func newMemoryEditCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&global, "global", false, "Edit the user-wide memory file (defaults to CLAUDE.md)")
+	cmd.Flags().BoolVar(&global, "global", false, "Edit the user-wide memory file (the active provider names the default)")
 	return cmd
 }
 
@@ -233,9 +229,9 @@ func newMemoryEditCmd() *cobra.Command {
 // branching without spawning a real editor.
 func resolveMemoryEditPath(app *composition.App, global bool, args []string) (string, error) {
 	if global {
-		fileName := defaultGlobalMemoryFile
-		if len(args) >= 1 {
-			fileName = args[0]
+		fileName, err := resolveGlobalMemoryName(app, args)
+		if err != nil {
+			return "", err
 		}
 		return app.EditGlobalMemoryPath(fileName)
 	}

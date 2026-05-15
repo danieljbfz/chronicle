@@ -207,6 +207,18 @@ func (p *Provider) GlobalMemoryFilePath(fileName string) string {
 	return fileName
 }
 
+// DefaultGlobalMemoryFile is the filename the CLI assumes
+// when the user asks for `chronicle memory show --global`
+// (or edit, or clean) without naming a file. We return the
+// canonical Claude name so a Claude user never has to type
+// it. Other providers that implement this interface will
+// return their own canonical name, which keeps the CLI
+// flow uniform across providers without coupling the CLI
+// to any one of them.
+func (p *Provider) DefaultGlobalMemoryFile() string {
+	return globalMemoryFile
+}
+
 // PlanDeleteGlobalMemory returns a DeletePlan that wipes
 // every user-global memory file Claude knows about. The
 // plan goes through chronicle's normal trash flow, so a

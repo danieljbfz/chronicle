@@ -348,6 +348,7 @@ func (f *globalMemoryFake) ListGlobalMemory(fs.FS) ([]contracts.GlobalMemoryFile
 func (f *globalMemoryFake) GlobalMemoryFilePath(fileName string) string {
 	return fileName
 }
+func (f *globalMemoryFake) DefaultGlobalMemoryFile() string { return "FAKE.md" }
 func (f *globalMemoryFake) PlanDeleteGlobalMemory(fs.FS) (contracts.DeletePlan, error) {
 	plan := contracts.DeletePlan{Category: "fake-global-memory"}
 	for _, file := range f.files {
@@ -523,6 +524,45 @@ func TestCleanGlobalMemory_returnsPlanWithFile(t *testing.T) {
 	}
 }
 
+// TestDefaultGlobalMemoryFile_returnsActiveProviderDefault
+// confirms composition forwards the lookup to whichever
+// provider is registered. The fake declares "FAKE.md", so
+// that is exactly what should come back. The point is that
+// composition has no Claude-specific knowledge baked into
+// it: a future Cursor adapter that returns "CURSOR.md"
+// would change the result without any code change here or
+// in the CLI.
+func TestDefaultGlobalMemoryFile_returnsActiveProviderDefault(t *testing.T) {
+	fake := &globalMemoryFake{name: "claude"}
+	a, _ := newGlobalMemoryTestApp(t, fake)
+
+	got, err := a.DefaultGlobalMemoryFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "FAKE.md" {
+		t.Errorf("DefaultGlobalMemoryFile = %q, want FAKE.md (the fake's declared default)", got)
+	}
+}
+
+// TestDefaultGlobalMemoryFile_failsWhenNoCapability covers
+// the "no global-memory provider" path. The CLI uses this
+// error to surface the same message the show, edit, and
+// clean methods would show, so users get one consistent
+// message regardless of how they reach the broken state.
+func TestDefaultGlobalMemoryFile_failsWhenNoCapability(t *testing.T) {
+	a := &App{
+		settings:  config.Defaults(),
+		locations: paths.Locations{TrashDir: t.TempDir()},
+		providers: []*providerEntry{
+			{Provider: &readOnlyFake{}, Root: t.TempDir()},
+		},
+	}
+	if _, err := a.DefaultGlobalMemoryFile(); err == nil {
+		t.Error("DefaultGlobalMemoryFile should fail without a global-memory provider")
+	}
+}
+
 // TestGlobalMemoryOperations_failWhenNoCapabilityRegistered
 // confirms the error path when no provider implements
 // GlobalMemoryStore. The CLI surfaces this with a clear
@@ -586,6 +626,7 @@ func (f *combinedMemoryFake) ListGlobalMemory(fs.FS) ([]contracts.GlobalMemoryFi
 	return f.global, nil
 }
 func (f *combinedMemoryFake) GlobalMemoryFilePath(name string) string { return name }
+func (f *combinedMemoryFake) DefaultGlobalMemoryFile() string         { return "CLAUDE.md" }
 func (f *combinedMemoryFake) PlanDeleteGlobalMemory(fs.FS) (contracts.DeletePlan, error) {
 	return contracts.DeletePlan{Category: "fake-global-memory"}, nil
 }
