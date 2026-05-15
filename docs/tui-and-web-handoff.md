@@ -257,36 +257,92 @@ the trash, exporting to Markdown, resuming — calls a composition
 method that already exists. The TUI does not invent a new domain
 model. It surfaces the existing one in a more interactive shape.
 
-Recommended stack:
+#### Picking the stack
 
-| Library | Role |
-|---|---|
-| [Bubble Tea](https://github.com/charmbracelet/bubbletea) | This is the runtime that wraps every screen. It uses the Elm pattern, so every screen you write is a `tea.Model` value with its own `Init`, `Update`, and `View` methods. |
-| [lipgloss](https://github.com/charmbracelet/lipgloss) | We use this for the styling. It gives us a clean way to set colours, borders, padding, and layout without scattering ANSI escape codes through the rendering code. |
-| [bubbles](https://github.com/charmbracelet/bubbles) | This package contains the ready-made components we compose into each screen. The ones we will reach for first are the list, the viewport, the text input, the table, the spinner, and the help footer. |
+The user wants a TUI that looks modern, reads as clean and
+elegant in the code, and has components you can reuse across
+screens. The choice of libraries is part of meeting that bar,
+and the choice should be yours after research rather than mine
+before it. Survey the current landscape of Go terminal-UI
+libraries before you write any code, and present the user with
+your recommendation and the reasoning behind it.
 
-These three libraries are the de facto standard for Go terminal
-applications in 2026, and the community has built dozens of polished
-apps on top of them.
+For each candidate library, answer these questions:
 
-Read the official documentation for each library before you write
-your first screen. Bubble Tea follows a particular Elm-style
-architecture that does not accept arbitrary mutation in the middle
-of a screen, and knowing the rules in advance saves you from
-discovering them through a broken test. lipgloss has its own ideas
-about how a style value composes with another style value, and the
-rules are not the same as a CSS cascade. The bubbles components
-each expose their own message types that you need to forward
-through your model's `Update` method correctly, or the component
-will look frozen. Find the edge cases the docs mention (terminal
-resize, paste handling, focus on multi-pane layouts, exit cleanup)
-and decide how each screen will handle them before you build the
-screen.
+- Is the library actively maintained, with releases inside the
+  last six months and an issue tracker that the maintainers
+  reply to?
+- What is its programming model, and does the model match the
+  way the presentation layer wants to work? An Elm-style
+  message loop is one option, an immediate-mode renderer is
+  another, a retained-mode widget tree is a third.
+- What does a screen built on the library actually look like
+  in production? Find one or two real apps that use it and
+  look at the rendered output. The visual bar is the Claude
+  Code CLI itself. Claude Code looks modern, reads as
+  user-friendly to a first-time user, and stays useful for a
+  power user who lives inside it. The header and footer carry
+  the right amount of context, the primary content area gets
+  the rest of the screen, the keyboard hints stay visible
+  without crowding the view, and the rendering reads as
+  polished without trying too hard. Your TUI should hit the
+  same bar.
+- What is the story for reusable components? Chronicle has a
+  session list that appears on at least three screens, so the
+  library you pick needs to make the second use easier than
+  the first, not harder.
+- What are the known limits? Concurrency, performance with
+  thousands of rows, paste handling, mouse support, dynamic
+  resize, exit cleanup.
 
-After the docs, read at least one well-regarded Bubble Tea app
-from start to finish so you see how a real project wires the
-pieces together. The `glow` Markdown reader and the `gh-dash`
-GitHub dashboard are both good references.
+The current leaning is the Charm stack ([Bubble
+Tea](https://github.com/charmbracelet/bubbletea) for the
+runtime, [lipgloss](https://github.com/charmbracelet/lipgloss)
+for styling, and [bubbles](https://github.com/charmbracelet/bubbles)
+for ready-made components). The Charm libraries are the de facto
+standard for Go terminal applications in 2026, and the community
+has built dozens of polished apps on top of them. The leaning is
+informed, but it is not decided. If your survey turns up a more
+modern or more elegant option, the choice goes to that option
+with a written justification the user can read.
+
+After the survey, present:
+
+- The two or three candidates you considered, each with one
+  paragraph that names the strengths and the weaknesses.
+- The trade-offs that matter for chronicle specifically.
+- The recommendation, with the reasoning that led you to it.
+- The risks the user should know about (dependency surface,
+  maintenance status, learning curve).
+
+Wait for the user to approve the choice before you start
+building.
+
+#### Reading the docs after the choice is made
+
+Whatever stack the user approves, read the official
+documentation for each library from start to finish before you
+write your first screen. The Charm stack has particular rules
+that are worth knowing in advance. Bubble Tea uses an Elm-style
+architecture that does not accept arbitrary mutation in the
+middle of a screen. lipgloss has its own composition rules for
+style values, and the rules are not the same as a CSS cascade.
+The bubbles components each expose their own message types that
+you need to forward through your model's `Update` method
+correctly, or the component will look frozen. Any other stack
+will have its own set of rules in the same shape, and the time
+to learn them is before you write the first screen, not during
+the first review pass.
+
+Find the edge cases the docs call out (terminal resize, paste
+handling, focus on multi-pane layouts, exit cleanup) and decide
+how each screen will handle them before you build the screen.
+
+After the docs, read at least one well-regarded app built on
+the chosen stack from start to finish, so you see how a real
+project wires the pieces together. For the Charm stack, the
+`glow` Markdown reader and the `gh-dash` GitHub dashboard are
+both good references.
 
 #### Testing and interacting with the TUI
 
@@ -341,38 +397,108 @@ data through a friendlier interface. The web app does not duplicate
 the cleanup or memory-edit flows in v1, because the destructive
 surface is harder to make safe over HTTP.
 
-Recommended stack:
+#### Picking the stack
 
-| Piece | Choice |
-|---|---|
-| Binary | We add a new `cmd/chronicle-web/` directory next to the existing `cmd/chronicle/`. Each binary does one thing, and the project has followed that rule from the start. |
-| Templates | We use [templ](https://github.com/a-h/templ). It gives us type-checked Go templates that compile alongside the rest of the source, so the Go compiler catches a typo in a template the same way it catches a typo in regular code. |
-| Interactivity | We use [HTMX](https://htmx.org/). The server renders small HTML fragments, the browser swaps them into the page, and we never need a separate JavaScript build to keep the UI lively. |
-| Styling | We use Tailwind. The binary embeds a pre-built CSS file, so the user does not need Node or any other JavaScript toolchain on their machine to run the web app. |
+The user wants a web app that looks modern, reads as clean and
+elegant in the code, and uses a component library or styling
+system that makes the rendering feel polished from the first
+page. The choice of libraries is part of meeting that bar, and
+the choice should be yours after research rather than mine
+before it.
 
-Avoid a single-page-app architecture and a separate frontend
-build. Chronicle is a single-binary tool, and the web app should
-not break that property.
+The visual references the user has in mind:
 
-Read the official documentation for templ, HTMX, and Tailwind
-before you start. templ has its own component model that compiles
-to Go code, with rules around imports and around how a component
-calls another component, and a quick read through the official
-guide saves you from learning those rules through compiler
-errors. HTMX has a small but precise vocabulary of HTML
-attributes (`hx-get`, `hx-post`, `hx-target`, `hx-swap`, and a
-few more), and the docs explain exactly when each one fires and
-what the server is expected to return. Tailwind's utility-class
-approach rewards a careful read through the docs before you write
-any markup, because the right utility is almost always already
-there and inventing your own CSS alongside Tailwind makes the
-result hard to maintain. Each of the three libraries is small
-enough that a careful read fits in a single sitting.
+- **[Linear](https://linear.app)** for the list-and-detail
+  layout, the keyboard-first navigation, the typography, and
+  the way the rendering stays fast even when the data is
+  dense. Chronicle's session-list-plus-transcript-reader is
+  the same shape as Linear's issue list plus issue detail.
+- **[Stripe Dashboard](https://dashboard.stripe.com)** for
+  the data density done without clutter. Stripe's tables fit
+  ten columns of useful information on screen without the
+  page feeling busy. The doctor view, the stats view, and the
+  trash view all benefit from a similar approach to tables.
+- **[Claude.ai's conversation history](https://claude.ai)**
+  as the closest direct analog. Chronicle's web app is, at
+  its core, a browser for past conversations, and Claude.ai's
+  own history view is the reference for what the same idea
+  looks like when the team behind it cares about craft.
+
+Survey the current landscape of Go web stacks before you write
+any code, and present the user with your recommendation and the
+reasoning behind it. For each candidate, answer these questions:
+
+- Is the library actively maintained, with releases inside the
+  last six months?
+- What is the templating model? A type-checked Go-based
+  approach is one option, the stdlib `html/template` package
+  is another, a runtime template engine is a third.
+- What is the interactivity story? A server-rendered approach
+  with HTML-over-the-wire is one option, a single-page-app is
+  another, a hybrid is a third. Chronicle's data does not
+  change while the user reads it, so the simpler server-side
+  story is usually the right starting point.
+- What is the component story? Tailwind plus a component
+  library like [DaisyUI](https://daisyui.com) or
+  [Flowbite](https://flowbite.com) is one path, a Go-native
+  component package is another, hand-rolled components with
+  plain Tailwind is a third. The user wants reusable
+  components, so the path you pick should make the second
+  reuse easier than the first build.
+- What is the build story? The chronicle binary should stay a
+  single-binary tool, so the assets need to embed cleanly
+  with `embed.FS` and the build should not need Node on the
+  developer's machine after the initial setup.
+
+The current leaning is [templ](https://github.com/a-h/templ)
+for the templates, [HTMX](https://htmx.org/) for the
+interactivity, Tailwind for the styling, and a component
+library on top of Tailwind for the reusable components. The
+leaning is informed but not decided. Newer alternatives the
+survey should consider include
+[Datastar](https://data-star.dev) as an HTMX successor,
+[gomponents](https://github.com/maragudk/gomponents) as a
+Go-native component model that competes with templ, and any
+shadcn-style component library that has emerged for the Go
+ecosystem since this document was written.
+
+After the survey, present:
+
+- The two or three candidates you considered, each with one
+  paragraph that names the strengths and the weaknesses.
+- The trade-offs that matter for chronicle specifically.
+- The recommendation, with the reasoning that led you to it.
+- The risks the user should know about.
+
+Wait for the user to approve the choice before you start
+building. Avoid a single-page-app architecture and a separate
+frontend build no matter which stack the user picks. Chronicle
+is a single-binary tool, and the web app should not break that
+property.
+
+#### Reading the docs after the choice is made
+
+Whatever stack the user approves, read the official
+documentation for each library from start to finish before you
+write your first route. The candidate libraries in the current
+leaning all have small enough surface areas that a careful read
+fits in a single sitting. templ has its own component model
+that compiles to Go code, with rules around imports and around
+how a component calls another component. HTMX has a small but
+precise vocabulary of HTML attributes (`hx-get`, `hx-post`,
+`hx-target`, `hx-swap`, and a handful of others), and the docs
+explain exactly when each one fires and what the server is
+expected to return. Tailwind's utility-class approach rewards a
+careful read through the docs before you write any markup,
+because the right utility is almost always already there and
+inventing your own CSS alongside Tailwind makes the result hard
+to maintain.
 
 After the docs, find one or two well-regarded Go web apps that
 use the same stack and read them end to end. The patterns the
-authors picked for templating, for HTMX routing, and for static
-asset embedding are usually worth borrowing.
+authors picked for templating, for routing, for static asset
+embedding, and for component composition are usually worth
+borrowing.
 
 #### Testing and interacting with the web app
 
