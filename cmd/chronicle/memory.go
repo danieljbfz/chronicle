@@ -32,22 +32,26 @@ import (
 func newMemoryCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "memory",
-		Short: "Inspect, edit, and prune per-project memory files",
-		Long: `chronicle memory manages the per-project memory files that AI
-coding assistants write to remember things across sessions.
+		Short: "Inspect, edit, and prune memory files (per-project and user-global)",
+		Long: `chronicle memory manages the memory files that AI coding
+assistants write to remember things across sessions. Two
+scopes are supported:
 
-A typical memory directory has one MEMORY.md index file plus
-topic files like architecture.md or debugging.md. The index is
-loaded into context at the start of every session in that
-project. Topic files load on demand based on the conversation.
+  Per-project memory: one MEMORY.md index file plus topic files
+  (architecture.md, debugging.md, ...) under
+  projects/<encoded-cwd>/memory/. Loaded into context at the start
+  of every session in that project.
+
+  User-global memory: one file (~/.claude/CLAUDE.md for Claude)
+  loaded into every session regardless of project. Use --global
+  on show, edit, and clean to target this scope.
 
 When a memory file goes stale, the assistant keeps loading the
 outdated information into every new session. Use 'chronicle
 memory list' to see what is on disk, 'chronicle memory show' to
 inspect one file, 'chronicle memory edit' to fix it, or
-'chronicle memory clean <project>' to wipe a project's memory
-entirely (the wipe goes through the trash, so a regretted clean
-is recoverable).`,
+'chronicle memory clean' to wipe a scope (the wipe goes through
+the trash, so a regretted clean is recoverable).`,
 	}
 	cmd.AddCommand(newMemoryListCmd())
 	cmd.AddCommand(newMemoryShowCmd())
@@ -65,7 +69,7 @@ is recoverable).`,
 func newMemoryListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List every per-project memory file across providers",
+		Short: "List every memory file across providers (per-project and user-global)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := composition.New()
 			if err != nil {
@@ -93,7 +97,7 @@ func writeMemoryList(w io.Writer, entries []composition.MemoryListing) error {
 		fmt.Fprintln(w, "No memory files found.")
 		return nil
 	}
-	fmt.Fprintf(w, "%d memory file(s):\n\n", len(entries))
+	fmt.Fprintf(w, "%d memory %s:\n\n", len(entries), composition.Pluralize(len(entries), "file", "files"))
 	for _, entry := range entries {
 		project := string(entry.ProjectID)
 		if project == "" {

@@ -33,6 +33,31 @@ func TestHumanBytes_picksTheRightUnit(t *testing.T) {
 	}
 }
 
+// TestPluralize_picksByCount pins the singular-vs-plural
+// rule. Zero and any count above one take the plural form.
+// Exactly one takes the singular. The helper keeps the
+// caller from sprinkling parenthetical fallbacks like
+// "1 entr(y/ies)" through the user-facing output.
+func TestPluralize_picksByCount(t *testing.T) {
+	cases := []struct {
+		n        int
+		singular string
+		plural   string
+		want     string
+	}{
+		{0, "session", "sessions", "sessions"},
+		{1, "session", "sessions", "session"},
+		{2, "session", "sessions", "sessions"},
+		{1, "entry", "entries", "entry"},
+		{5, "entry", "entries", "entries"},
+	}
+	for _, tc := range cases {
+		if got := Pluralize(tc.n, tc.singular, tc.plural); got != tc.want {
+			t.Errorf("Pluralize(%d, %q, %q) = %q, want %q", tc.n, tc.singular, tc.plural, got, tc.want)
+		}
+	}
+}
+
 // TestHumanInt_addsThousandsSeparators covers the boundary
 // cases of the integer formatter: small numbers stay
 // untouched, large numbers gain commas every three digits,

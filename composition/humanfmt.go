@@ -64,6 +64,24 @@ func HumanAge(t time.Time) string {
 	}
 }
 
+// Pluralize picks the singular or plural noun based on n.
+// Use it instead of the parenthetical "(s)" or "(y/ies)"
+// fallbacks: those read as a developer hedge ("1 entr(y/ies)
+// in the trash") and accumulate a uniform user-facing
+// awkwardness across the CLI. With this helper the same
+// line reads as natural English ("1 entry in the trash" /
+// "3 entries in the trash").
+//
+// Callers pass the singular and the plural separately so
+// English irregulars (entry / entries, file / files) work
+// without the helper having to learn pluralization rules.
+func Pluralize(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
+}
+
 // HumanInt formats an integer with thousands separators so
 // large counts stay readable at a glance. The function
 // handles negative numbers correctly even though chronicle

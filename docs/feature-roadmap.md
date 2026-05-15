@@ -11,126 +11,68 @@ The mental frame is: **chronicle is a multi-provider history manager**. The user
 
 ## Already shipped
 
+The CLI surface is feature-complete. Every command runs read-only by
+default, every destructive command defaults to dry-run, and every
+deletion goes through the recoverable trash (or, for `clean dangling`,
+through a backup-first surgical edit).
+
+### Browse and inspect
+
 - Multi-provider session listing (`chronicle list`).
-- Session export (`chronicle export`) and clipboard copy (`chronicle copy`).
 - Doctor view (`chronicle doctor`).
-- Cascade-aware delete with trash (`chronicle clean abandoned`).
-- Orphan scan with cascade plus floating-junk heuristics (`chronicle clean orphans`).
-- Trash management (`chronicle trash list/restore/empty`).
-- Two providers (Claude Code, GitHub Copilot Chat).
+- Stats summary across providers, projects, time, and disk usage (`chronicle stats`).
+- Substring search across every session of every provider (`chronicle search`).
 
-## Ship now
+### Export and copy
 
-These are immediately addressable, fit the existing architecture without redesign, and unlock real user value.
+- Single-session export (`chronicle export`).
+- Bulk export of every session in one project (`chronicle export --bulk`).
+- Clipboard copy via OSC 52 (`chronicle copy`).
 
-### `chronicle memory` — manage per-project auto-memory
+### Resume
 
-The user explicitly raised this. Claude's auto-memory directory at `~/.claude/projects/<encoded-cwd>/memory/` holds markdown files Claude loads at every session start in that project. Stale memory becomes wrong information that pollutes every new conversation. The user has no easy way today to inspect, edit, or selectively prune these files without rummaging the filesystem.
+- Re-open a session in its original tool, in the original working directory (`chronicle resume`). Provider-aware: Claude only, with a clear "this provider does not support resume" message for Copilot.
 
-Subcommands:
+### Memory
 
-- `chronicle memory list` — list every per-project memory file across all projects, with size and last-modified date.
-- `chronicle memory show <project> [--file MEMORY.md]` — dump the contents to stdout, paged.
-- `chronicle memory edit <project> [--file MEMORY.md]` — open in `$EDITOR`.
-- `chronicle memory clean <project>` — delete every memory file in the project (with confirmation, into trash).
+- List, show, edit, and clean per-project memory files (`chronicle memory list/show/edit/clean`).
+- Same four operations against the user-global memory file (`~/.claude/CLAUDE.md`) via `--global`.
 
-**Cost: small.** New `composition/memory.go`, new CLI subcommand. The existing trash subsystem handles the destructive side. The `<project>` argument is the same `ProjectID` we already use elsewhere.
+### Cleanup
 
-**Risk: low.** Memory files are markdown the user can already edit through `/memory` in Claude itself. We just give them a faster surface.
+Four categories, each defaulting to dry-run, each routing through the recoverable trash (or, for dangling, through a backup-first edit):
 
-### `chronicle clean` for the per-machine `.claude.json`
+- `chronicle clean abandoned` — sessions with zero real user prompts.
+- `chronicle clean stale --older-than 30d` — sessions older than the threshold (default matches Claude's `cleanupPeriodDays`).
+- `chronicle clean orphans` — sibling files left behind plus floating junk (paste cache, shell snapshots, rotated config backups).
+- `chronicle clean dangling` — `~/.claude.json` project entries whose directory has gone, edited byte-preservingly with a backup.
 
-The `~/.claude.json` config file at the user's home directory holds OAuth tokens, per-project trust settings, and personal MCP server configs. It is fragile (issues #40226, #29250, #58608 document race-condition corruption). chronicle could:
+### Trash
 
-- Verify the file parses as valid JSON.
-- List the projects it knows about.
-- Find projects in `.claude.json` whose on-disk directory under `~/.claude/projects/<encoded-cwd>/` has been deleted, and offer to remove the stale `.claude.json` entry.
+- `chronicle trash list/restore/empty`.
 
-**Cost: small to medium.** Editing `.claude.json` is a partial-rewrite operation, not a file move, so we cannot route it through the existing trash. We need an atomic-write helper (write to temp, rename) and a backup-first pattern (write `~/.claude.json` itself to `~/.claude/backups/` before mutating).
+### Configure chronicle itself
 
-**Risk: medium.** A bad write to `.claude.json` could log the user out or wipe per-project trust. The atomic-write + backup-first pattern keeps the blast radius small.
+- `chronicle config show/edit/path`.
 
-### `chronicle stats` — disk usage breakdown
+### Architecture
 
-The user already has size data per provider in the `doctor` view. A `stats` view would extend this:
+- Two providers (Claude Code, GitHub Copilot Chat) plus a registry pattern for adding more.
+- Optional capability interfaces (`Cleaner`, `MemoryStore`, `GlobalMemoryStore`, `Resumable`, `GlobalConfig`) discovered by type assertion.
+- Provider-supplied defaults wherever a default would otherwise leak provider names into the CLI or composition layer.
+- Provider-agnostic config: `Providers map[string]ProviderConfig` keyed by adapter name, no typed Claude/Copilot fields.
 
-- Total disk usage per provider.
-- Breakdown by category (sessions, file-history, paste-cache, memory, etc.).
-- Top N largest sessions across providers.
-- Distribution of session sizes (how many tiny sessions vs huge ones?).
-- Age distribution (how many sessions older than 30 days?).
+## Maybe still worth doing
 
-**Cost: small.** Pure computation over what `ListSessions` already returns. New `composition/stats.go` plus a CLI subcommand.
+Small follow-ups that would round out the existing surface, listed by cost-to-value.
 
-**Risk: none.** Read-only.
+### `chronicle stats --by-model`
 
-## Ship soon
+The user's session JSONL files carry a `model` field. Sessions routed through MiniMax (or any other Anthropic-API-compatible backend) carry a different value than native Claude sessions. A `--by-model` breakdown would tell the user how their session count, message count, and disk usage split across models.
 
-Real value, real cost, worth the careful thought.
+**Cost: small.** Read the model field from each session summary (or from the first record of each session if summaries do not yet carry it). Aggregate alongside the existing per-provider rollup.
 
-### `chronicle search` — full-text search across all sessions
-
-Today the user can `chronicle list` and grep titles, but the title is just the first user prompt. Searching the body of every session is what they actually want when they ask "where did I discuss X?".
-
-Subcommands:
-
-- `chronicle search <query>` — full-text search, ranked results, snippet preview.
-- `chronicle search <query> --provider claude` — limit to one provider.
-- `chronicle search <query> --since 7d --project myproject` — filter by age and project.
-
-**Cost: medium.** A naive grep across every session file works for hundreds of sessions but slows down at thousands. The right design is a small index file (BadgerDB or SQLite) maintained incrementally. The index needs to invalidate on file mtime, which is one stat call per session per query.
-
-**Risk: low.** Read-only. The only concern is the index getting out of sync; we can solve that with a `chronicle search --rebuild` flag.
-
-### `chronicle resume <session-id>`
-
-The user finds an interesting old session through `chronicle list` or `chronicle search` and wants to pick up where they left off. Today they have to figure out the session ID from chronicle's output and pass it to Claude themselves. We can shortcut that.
-
-```
-chronicle resume <session-id>
-```
-
-This invokes `claude --resume <session-id>` for Claude sessions, with the right working directory set automatically. For Copilot, the equivalent might involve opening VS Code at the workspace and selecting the chat from the panel — harder, possibly worth shipping for Claude only at first.
-
-**Cost: small for Claude.** Just an `os/exec.Command` invocation. The session is already in our index because `ListSessions` knows about it.
-
-**Risk: none.** We are just running another tool the user could have run manually.
-
-### `chronicle export --bulk` — export many sessions at once
-
-Today `chronicle export` handles one session at a time. Power users want to export every session in a project, or every session matching a search, into a directory of markdown files.
-
-```
-chronicle export --bulk --project myproject -o ./exported/
-chronicle export --bulk --since 30d -o ./recent-sessions/
-```
-
-**Cost: small.** Loop around the existing single-session export.
-
-**Risk: none.** Read-only.
-
-### `chronicle config edit/show/get/set`
-
-Today the user has to know that the config lives at `~/.config/chronicle/config.toml` and edit it manually. A small wrapper would be nicer.
-
-```
-chronicle config show          # print current effective config
-chronicle config get trash.retention_days
-chronicle config set trash.retention_days 60
-chronicle config edit          # open in $EDITOR
-```
-
-**Cost: small.** Wraps the existing config loader plus a tiny TOML write helper.
-
-**Risk: low.** Atomic write + the config loader already handles missing/malformed files gracefully.
-
-### `chronicle clean stale [--older-than 30d]`
-
-A by-age cleanup category, parallel to `clean abandoned` and `clean orphans`. For users who want chronicle to do what Claude's auto-cleaner does, but on demand and across all providers. Would be especially useful for Copilot, which has no equivalent auto-cleaner.
-
-**Cost: small.** New `CleanCategory` and a per-category builder. The existing trash subsystem handles the rest.
-
-**Risk: low** if the default `--older-than` value is conservative (90 days?).
+**Risk: none.** Read-only addition to an existing command.
 
 ## Maybe
 
@@ -200,11 +142,25 @@ Out of scope. Would require server-side state, accounts, the whole shebang. The 
 
 ## My recommended order
 
-If I were running this project as a tech lead, the next four items in this order would be:
+The CLI tier (every "Ship now" and "Ship soon" item from earlier
+revisions of this document) is done. The remaining choices are about
+strategic direction, not tactical work:
 
-1. **`chronicle memory` workflow.** Direct response to the user's stated pain about stale memory. Small cost, high value.
-2. **`chronicle stats`.** Pure read-only addition. Reuses what we have. Lets the user see at a glance how big each piece of their AI-history footprint is.
-3. **`chronicle search`.** Real value gap today. The main reason to keep history at all is to find things later, and finding things means search.
-4. **`chronicle clean stale`.** Rounds out the cleanup story with a third category alongside abandoned and orphans.
+1. **`chronicle stats --by-model`** if the user wants visibility into
+   their model split before any larger work. Small commit, real
+   information return.
+2. **TUI** if the user wants a presentation layer over the CLI. The
+   reason to build it now and not earlier is that the underlying
+   capability surface is stable: a TUI built today wraps a frozen
+   feature set rather than chasing a moving target.
+3. **Web frontend** if the goal is sharing rendered transcripts with
+   teammates without exporting first. Larger scope than TUI.
+4. **A third provider adapter** (Cursor, Antigravity) if the multi-
+   provider story is the next frontier. The optional-capability
+   architecture is set up to make this additive: a new package under
+   `adapters/`, one entry in `adapters/all.go`, no changes anywhere
+   else.
 
-After those four, the next-bigger choice is **TUI vs Web vs more providers**, which is more about strategic direction than tactical work.
+The MCP and plugin management items below remain "Maybe" for the same
+reasons noted at the time of writing: they would mostly duplicate what
+the upstream tools already do well.

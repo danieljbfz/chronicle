@@ -74,19 +74,21 @@ func writeStatsText(w io.Writer, stats composition.Stats) error {
 	if len(stats.Providers) > 0 {
 		fmt.Fprintln(w, "By provider")
 		for _, p := range stats.Providers {
-			fmt.Fprintf(w, "  %s: %s sessions, %s messages, %s across %d project(s)\n",
+			fmt.Fprintf(w, "  %s: %s sessions, %s messages, %s across %d %s\n",
 				p.Name,
 				composition.HumanInt(p.Aggregate.Sessions),
 				composition.HumanInt(p.Aggregate.Messages),
 				composition.HumanBytes(p.Aggregate.SizeBytes),
 				p.Projects,
+				composition.Pluralize(p.Projects, "project", "projects"),
 			)
 		}
 		fmt.Fprintln(w)
 	}
 
 	if len(stats.TopProjects) > 0 {
-		fmt.Fprintf(w, "Top %d project(s) by session count\n", len(stats.TopProjects))
+		fmt.Fprintf(w, "Top %d %s by session count\n",
+			len(stats.TopProjects), composition.Pluralize(len(stats.TopProjects), "project", "projects"))
 		for _, proj := range stats.TopProjects {
 			label := proj.Path
 			if label == "" {

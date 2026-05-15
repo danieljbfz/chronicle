@@ -153,8 +153,8 @@ func runBulkExport(app *composition.App, projectID contracts.ProjectID, provider
 	if err != nil {
 		return bulkExportFailure(projectID, err)
 	}
-	fmt.Fprintf(stderr, "Wrote %d session(s) (%s) to %s\n",
-		count, composition.HumanBytes(totalBytes), opts.outPath)
+	fmt.Fprintf(stderr, "Wrote %d %s (%s) to %s\n",
+		count, composition.Pluralize(count, "session", "sessions"), composition.HumanBytes(totalBytes), opts.outPath)
 	return nil
 }
 

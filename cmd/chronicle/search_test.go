@@ -49,7 +49,7 @@ func TestWriteSearchText_includesProviderSessionTitleSnippets(t *testing.T) {
 	out := buf.String()
 
 	for _, want := range []string{
-		"2 matching session(s)",
+		"2 matching sessions",
 		"claude/abc",
 		"How do I read a file in Go?",
 		"user: read a file",
@@ -71,7 +71,7 @@ func TestWriteSearchText_includesProviderSessionTitleSnippets(t *testing.T) {
 
 // TestWriteSearchText_emptyResultsSaysSo confirms the
 // no-matches path. Returning early with a one-line message
-// is friendlier than printing "0 matching session(s):" and
+// is friendlier than printing "0 matching sessions:" and
 // then nothing.
 func TestWriteSearchText_emptyResultsSaysSo(t *testing.T) {
 	var buf bytes.Buffer

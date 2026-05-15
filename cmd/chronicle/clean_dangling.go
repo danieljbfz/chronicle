@@ -103,8 +103,8 @@ func runDanglingCleanup(app *composition.App, dangling []composition.ConfigProje
 		totalBytes += l.Entry.SizeBytes
 	}
 
-	fmt.Fprintf(stdout, "Found %d dangling config-project entry(ies) (%s total).\n\n",
-		len(dangling), composition.HumanBytes(totalBytes))
+	fmt.Fprintf(stdout, "Found %d dangling config-project %s (%s total).\n\n",
+		len(dangling), composition.Pluralize(len(dangling), "entry", "entries"), composition.HumanBytes(totalBytes))
 	for _, l := range dangling {
 		fmt.Fprintf(stdout, "  %s  %s  (%s)\n",
 			l.Provider, l.Entry.Key, composition.HumanBytes(l.Entry.SizeBytes))
@@ -121,8 +121,8 @@ func runDanglingCleanup(app *composition.App, dangling []composition.ConfigProje
 		return fail("apply: %v", err)
 	}
 	for _, r := range results {
-		fmt.Fprintf(os.Stderr, "Removed %d entry(ies) from %s. Backup at %s\n",
-			len(r.RemovedKeys), r.Provider, r.BackupPath)
+		fmt.Fprintf(os.Stderr, "Removed %d %s from %s. Backup at %s\n",
+			len(r.RemovedKeys), composition.Pluralize(len(r.RemovedKeys), "entry", "entries"), r.Provider, r.BackupPath)
 	}
 	return nil
 }

@@ -28,7 +28,7 @@ import (
 func newCleanCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "clean",
-		Short: "Find and (with --apply) move stale data into the trash",
+		Short: "Find unwanted data (abandoned, stale, orphan, dangling) and remove it with --apply",
 		Long: `chronicle clean has one subcommand per cleanup category.
 
 Every clean command defaults to dry-run mode: it prints what
@@ -221,8 +221,8 @@ func runClean(app *composition.App, planned []composition.PlannedDeletion, apply
 		totalBytes += pd.Plan.SizeBytes
 	}
 
-	fmt.Fprintf(stdout, "Found %d session(s) to clean (%s total).\n\n",
-		len(planned), composition.HumanBytes(totalBytes))
+	fmt.Fprintf(stdout, "Found %d %s to clean (%s total).\n\n",
+		len(planned), composition.Pluralize(len(planned), "session", "sessions"), composition.HumanBytes(totalBytes))
 	for _, pd := range planned {
 		fmt.Fprintf(stdout, "  %s/%s  (%s)\n",
 			pd.ProviderName(), pd.Plan.SessionID, composition.HumanBytes(pd.Plan.SizeBytes))
@@ -241,7 +241,8 @@ func runClean(app *composition.App, planned []composition.PlannedDeletion, apply
 	if err != nil {
 		return fail("execute: %v", err)
 	}
-	fmt.Fprintf(os.Stderr, "Moved %d session(s) into the trash.\n", len(entries))
+	fmt.Fprintf(os.Stderr, "Moved %d %s into the trash.\n",
+		len(entries), composition.Pluralize(len(entries), "session", "sessions"))
 	for _, entry := range entries {
 		fmt.Fprintf(os.Stderr, "  %s\n", entry.ID)
 	}

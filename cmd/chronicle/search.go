@@ -91,7 +91,8 @@ func writeSearchText(w io.Writer, results []composition.SearchResult) error {
 		fmt.Fprintln(w, "No matches found.")
 		return nil
 	}
-	fmt.Fprintf(w, "%d matching session(s):\n\n", len(results))
+	fmt.Fprintf(w, "%d matching %s:\n\n",
+		len(results), composition.Pluralize(len(results), "session", "sessions"))
 	for _, result := range results {
 		title := firstLine(result.Title)
 		if title == "" {

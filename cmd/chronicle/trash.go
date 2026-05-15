@@ -70,7 +70,8 @@ func writeTrashList(w io.Writer, entries []composition.TrashEntry) error {
 		fmt.Fprintln(w, "Trash is empty.")
 		return nil
 	}
-	fmt.Fprintf(w, "%d entr(y/ies) in the trash:\n\n", len(entries))
+	fmt.Fprintf(w, "%d %s in the trash:\n\n",
+		len(entries), composition.Pluralize(len(entries), "entry", "entries"))
 	for _, entry := range entries {
 		fmt.Fprintf(w, "  %s\n", entry)
 	}
@@ -131,7 +132,8 @@ only chronicle command that performs an unrecoverable delete.`,
 				fmt.Fprintln(cmd.OutOrStdout(), "Nothing to remove. Every entry is within its retention window.")
 				return nil
 			}
-			fmt.Fprintf(os.Stderr, "Removed %d entr(y/ies):\n", len(removed))
+			fmt.Fprintf(os.Stderr, "Removed %d %s:\n",
+				len(removed), composition.Pluralize(len(removed), "entry", "entries"))
 			for _, id := range removed {
 				fmt.Fprintf(os.Stderr, "  %s\n", id)
 			}
