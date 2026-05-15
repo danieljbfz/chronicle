@@ -35,7 +35,7 @@ func TestRootCmd_helpListsSubcommands(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute --help: %v", err)
 	}
-	for _, want := range []string{"list", "export", "copy", "doctor", "clean", "trash", "memory"} {
+	for _, want := range []string{"list", "export", "copy", "doctor", "search", "clean", "trash", "memory"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("--help missing subcommand %q in:\n%s", want, buf.String())
 		}
