@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/danieljbfz/chronicle/contracts"
@@ -291,10 +292,35 @@ func parseUserRecord(record rawRecord, ts time.Time) contracts.Message {
 		ParentID:    contracts.MessageID(record.ParentUUID),
 		Role:        contracts.RoleUser,
 		Timestamp:   ts,
-		IsMeta:      record.IsMeta,
+		IsMeta:      record.IsMeta || isSlashCommandUserMessage(blocks),
 		IsSidechain: record.IsSidechain,
 		Blocks:      blocks,
 	}
+}
+
+// isSlashCommandUserMessage reports whether a user message
+// is actually a Claude Code slash command like /clear or
+// /compact. Claude writes those as ordinary user records
+// whose content is an XML-shaped wrapper around the command
+// name, and it does not set the isMeta flag on them even
+// though they are not real prompts the user wrote. We need
+// to recognize them ourselves so the title of a session
+// that began with one shows the user's first real prompt
+// instead of the literal "<command-name>/clear..." markup.
+//
+// We match on the leading "<command-name>" tag. The shape
+// is stable across the Claude Code releases we have
+// observed, and matching the tag rather than the inner
+// content means new slash commands need no parser update.
+func isSlashCommandUserMessage(blocks []contracts.Block) bool {
+	for _, b := range blocks {
+		if t, ok := b.(contracts.TextBlock); ok {
+			if strings.HasPrefix(strings.TrimSpace(t.Text), "<command-name>") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // parseAssistantRecord turns one assistant-typed record into a

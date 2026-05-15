@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -37,6 +38,17 @@ func newListCmd() *cobra.Command {
 	return cmd
 }
 
+// maxListTitleLen is the cap on title length in the JSON
+// output. Real sessions sometimes use a long pasted
+// specification as the very first user message, and the
+// adapter takes that whole specification as the title.
+// Without a cap, one of those rows can dominate the output
+// stream by several megabytes and make `chronicle list`
+// unusable for human or shell-pipe consumers. We keep enough
+// characters to identify a session, and append an ellipsis
+// so the truncation is visible.
+const maxListTitleLen = 200
+
 // writeListings emits one JSON object per line. Each object carries
 // the user-friendly fields a shell user is likely to filter on:
 // the provider name, the session and project identifiers, the
@@ -61,7 +73,7 @@ func writeListings(w io.Writer, listings []composition.SessionListing) error {
 			Provider:    l.Provider,
 			SessionID:   string(l.Summary.ID),
 			ProjectID:   string(l.Summary.Project),
-			Title:       l.Summary.Title,
+			Title:       truncateTitle(l.Summary.Title, maxListTitleLen),
 			StartedAt:   fmtTime(l.Summary.StartedAt),
 			LastActive:  fmtTime(l.Summary.LastActive),
 			TurnCount:   l.Summary.TurnCount,
@@ -74,4 +86,20 @@ func writeListings(w io.Writer, listings []composition.SessionListing) error {
 		}
 	}
 	return nil
+}
+
+// truncateTitle shortens a session title to at most limit
+// runes and appends a single-character ellipsis when the
+// shortening actually trimmed something. We count runes
+// rather than bytes so a title that opens with multibyte
+// characters lands at a sensible visual width. Trailing
+// newlines are removed up front, because they would look
+// like blank lines inside the JSON output.
+func truncateTitle(title string, limit int) string {
+	title = strings.TrimRight(title, "\n\r\t ")
+	runes := []rune(title)
+	if len(runes) <= limit {
+		return title
+	}
+	return string(runes[:limit]) + "…"
 }

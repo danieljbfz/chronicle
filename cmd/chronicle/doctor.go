@@ -63,9 +63,16 @@ func writeDoctorText(w io.Writer, healths []composition.ProviderHealth) error {
 		fmt.Fprintf(w, "Provider: %s\n", h.Name)
 		fmt.Fprintf(w, "  Root:        %s\n", h.Root)
 		fmt.Fprintf(w, "  Version:     %s\n", h.Version.Version)
-		if h.Version.Fingerprint != "" {
-			fmt.Fprintf(w, "  Fingerprint: %s\n", h.Version.Fingerprint)
+		fingerprint := h.Version.Fingerprint
+		if fingerprint == "" {
+			// Some adapters do not compute a fingerprint yet,
+			// usually because their storage shape has only one
+			// known version. Print a dash placeholder so every
+			// provider block has the same set of lines and the
+			// output reads with a consistent shape.
+			fingerprint = "—"
 		}
+		fmt.Fprintf(w, "  Fingerprint: %s\n", fingerprint)
 		fmt.Fprintf(w, "  Reachable:   %v\n", h.Reachable)
 		fmt.Fprintf(w, "  Sessions:    %d\n", h.SessionCount)
 		for _, msg := range h.Errors {
