@@ -167,10 +167,50 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 		Cwd:          cwd,
 		StartedAt:    startedAt,
 		EndedAt:      endedAt,
+		Model:        mostFrequentModel(messages),
 		Messages:     messages,
 		Capabilities: source.Capabilities,
 		Source:       source,
 	}, nil
+}
+
+// mostFrequentModel returns the model identifier that appears
+// on the most assistant messages in the conversation. Claude
+// records the model per assistant message, and a single
+// session can carry messages from more than one model when the
+// user toggles between Sonnet and Opus mid-conversation. The
+// most-frequent value is the simplest fair summary, and the
+// stats renderer rolls it up into the "by-model" breakdown.
+//
+// Ties are broken in favor of the model that appeared first in
+// the conversation, because sort.SliceStable preserves
+// insertion order. The function returns the empty string for a
+// conversation with no assistant messages, so the stats
+// renderer can place those sessions under "(unknown)".
+func mostFrequentModel(messages []contracts.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	counts := map[string]int{}
+	order := []string{}
+	for _, m := range messages {
+		if m.Model == "" {
+			continue
+		}
+		if _, seen := counts[m.Model]; !seen {
+			order = append(order, m.Model)
+		}
+		counts[m.Model]++
+	}
+	best := ""
+	bestCount := 0
+	for _, name := range order {
+		if counts[name] > bestCount {
+			best = name
+			bestCount = counts[name]
+		}
+	}
+	return best
 }
 
 // decodeOrZero unmarshals raw into out and silently swallows any
@@ -261,6 +301,12 @@ func parseUserRecord(record rawRecord, ts time.Time) contracts.Message {
 // Message. Assistant content is always an array of typed parts in
 // Claude's storage, so we go straight to decodeAssistantContent
 // without the shape check that decodeUserContent has to do.
+//
+// Claude records the model identifier on every assistant record,
+// so we copy it onto the Message. The session-level model on the
+// resulting Conversation is then the most-frequent of these
+// per-message values, computed in parseStream after every record
+// is in hand.
 func parseAssistantRecord(record rawRecord, ts time.Time) contracts.Message {
 	var body assistantBody
 	decodeOrZero(record.Message, &body)
@@ -273,6 +319,7 @@ func parseAssistantRecord(record rawRecord, ts time.Time) contracts.Message {
 		Timestamp:   ts,
 		IsMeta:      record.IsMeta,
 		IsSidechain: record.IsSidechain,
+		Model:       body.Model,
 		Blocks:      blocks,
 	}
 }

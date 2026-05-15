@@ -176,6 +176,7 @@ func parseEventStream(root fs.FS, sessionDir string, source contracts.StorageVer
 		messages   []contracts.Message
 		sessionID  contracts.SessionID
 		cwd        string
+		model      string
 		startedAt  time.Time
 		endedAt    time.Time
 		toolStarts = map[string]toolStartData{}
@@ -200,6 +201,14 @@ func parseEventStream(root fs.FS, sessionDir string, source contracts.StorageVer
 				}
 				if d.Context.Cwd != "" {
 					cwd = d.Context.Cwd
+				}
+				// The agent runtime records the selected model
+				// once per session, in the session.start event.
+				// We carry it on the Conversation rather than
+				// every assistant Message, because the value is
+				// session-wide and not per-message.
+				if d.Model != "" {
+					model = d.Model
 				}
 			}
 
@@ -303,6 +312,7 @@ func parseEventStream(root fs.FS, sessionDir string, source contracts.StorageVer
 		Cwd:          cwd,
 		StartedAt:    startedAt,
 		EndedAt:      endedAt,
+		Model:        model,
 		Messages:     messages,
 		Capabilities: source.Capabilities,
 		Source:       source,

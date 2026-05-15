@@ -210,6 +210,7 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 			Title:        c.FirstUserPrompt(),
 			TurnCount:    len(c.Messages),
 			SizeBytes:    size,
+			Model:        c.Model,
 			Capabilities: sv.Capabilities,
 			Source:       sv,
 		})

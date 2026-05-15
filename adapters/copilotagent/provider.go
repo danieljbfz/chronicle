@@ -175,6 +175,7 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 			Title:        sessionTitle(conv),
 			TurnCount:    len(conv.Messages),
 			SizeBytes:    size,
+			Model:        conv.Model,
 			Capabilities: p.cached.Capabilities,
 			Source:       p.cached,
 		})

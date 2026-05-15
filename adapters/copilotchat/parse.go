@@ -48,6 +48,13 @@ func parseSnapshot(state map[string]any, project contracts.ProjectID, source con
 	endedAt := epochMillisToTime(snapshotInt(state, "lastMessageDate"))
 	title := snapshotString(state, "customTitle")
 
+	// VS Code Copilot Chat records the model the user picked
+	// for the session under inputState.selectedModel.identifier.
+	// The identifier is a stable string like "claude-sonnet-4"
+	// or "gpt-4.1", which is what the stats renderer wants for
+	// the by-model breakdown.
+	model := snapshotString(state, "inputState", "selectedModel", "identifier")
+
 	var messages []contracts.Message
 	for index, entry := range snapshotSlice(state, "requests") {
 		request, ok := entry.(map[string]any)
@@ -69,6 +76,7 @@ func parseSnapshot(state map[string]any, project contracts.ProjectID, source con
 		StartedAt:    startedAt,
 		EndedAt:      endedAt,
 		Title:        title,
+		Model:        model,
 		Messages:     messages,
 		Capabilities: source.Capabilities,
 		Source:       source,
