@@ -3,8 +3,17 @@ package contracts
 import "io/fs"
 
 // Provider is the contract every per-tool adapter has to satisfy.
-// The rest of chronicle calls these methods, never the adapters
-// directly.
+// It covers the read-only operations every chronicle install
+// needs: detect the storage shape, list projects and sessions,
+// and read one session's full conversation.
+//
+// Adapters that also support destructive operations (delete a
+// session, scan for orphans) implement the optional Cleaner
+// interface in addition to Provider. Composition checks for that
+// at runtime with a type assertion. Splitting the cleanup methods
+// into a separate interface means a new adapter can land with
+// read-only support and add cleanup later, without having to
+// ship stub methods that pretend to be real.
 //
 // Composition hands each Provider an fs.FS rooted at the
 // provider's data directory, instead of a path string. That sounds
@@ -17,12 +26,12 @@ import "io/fs"
 //
 // Detect always returns a non-nil StorageVersion. There are only
 // two cases where it returns an error instead. The first is when
-// the path is unreachable (e.g., a permission denial or a missing root).
-// The second is when no record in the file parses as JSON at all,
-// which means we are not looking at the right kind of file. A
-// file with valid JSON we do not recognize is not an error. We
-// set Version to "unknown" and the rest of the system stays
-// read-only.
+// the path is unreachable (e.g., a permission denial or a missing
+// root). The second is when no record in the file parses as JSON
+// at all, which means we are not looking at the right kind of
+// file. A file with valid JSON we do not recognize is not an
+// error. We set Version to "unknown" and the rest of the system
+// stays read-only.
 //
 // Every Provider has to follow four rules.
 //
@@ -30,8 +39,9 @@ import "io/fs"
 //     few records, so we can tell new versions apart from old ones.
 //  2. Parse tolerantly. Record types and content kinds we do not
 //     recognize become UnknownBlock values, never dropped silently.
-//  3. Set the right Capabilities flags, so the user interface knows
-//     which features to show without having to look at the version.
+//  3. Set the right Capabilities flags, so the user interface
+//     knows which features to show without having to look at the
+//     version.
 //  4. Write a structured warning report when an unrecognized
 //     fingerprint shows up, so the user knows their data is being
 //     read in read-only mode.
@@ -43,7 +53,22 @@ type Provider interface {
 	ListProjects(root fs.FS) ([]Project, error)
 	ListSessions(root fs.FS, project ProjectID) ([]SessionSummary, error)
 	ReadSession(root fs.FS, id SessionID) (Conversation, error)
+}
 
+// Cleaner is the optional capability adapters implement when they
+// support destructive operations. Composition uses a type
+// assertion to find the Cleaners among the registered Providers:
+//
+//	if cleaner, ok := provider.(Cleaner); ok {
+//	    plan, err := cleaner.PlanDelete(root, id)
+//	}
+//
+// Splitting Cleaner out of Provider keeps the read-only contract
+// small. It also keeps the destructive surface visible in the
+// type system: any code that touches Cleaner is doing something
+// irreversible, and reviewers can grep for the type name to find
+// every such site.
+type Cleaner interface {
 	PlanDelete(root fs.FS, id SessionID) (DeletePlan, error)
 	PlanOrphanScan(root fs.FS) (DeletePlan, error)
 }

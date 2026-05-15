@@ -36,12 +36,6 @@ func (f *fakeProvider) ReadSession(_ fs.FS, id contracts.SessionID) (contracts.C
 	}
 	return c, nil
 }
-func (f *fakeProvider) PlanDelete(fs.FS, contracts.SessionID) (contracts.DeletePlan, error) {
-	return contracts.DeletePlan{}, nil
-}
-func (f *fakeProvider) PlanOrphanScan(fs.FS) (contracts.DeletePlan, error) {
-	return contracts.DeletePlan{}, nil
-}
 
 // newAppWithFakes is a small wrapper around NewForTest that takes
 // fake providers and wires them up with empty MapFS values. The
@@ -93,12 +87,12 @@ func TestApp_ReadSession_unknownIdReturnsNotExist(t *testing.T) {
 	}
 }
 
-// TestDoctor_includesUnknownVersionNote proves the doctor view
-// attaches a warning note when the storage version is unknown. The
-// user reads this note in the doctor output, and the cleanup
-// commands use the same fact (Version == "unknown") to require an
-// extra confirmation before doing anything destructive.
-func TestDoctor_includesUnknownVersionNote(t *testing.T) {
+// TestDoctor_addsWarningForUnknownVersion proves the doctor view
+// records a warning when the storage version is unknown. The user
+// reads warnings in the doctor output, and the cleanup commands
+// use the same fact (Version == "unknown") to require an extra
+// confirmation before doing anything destructive.
+func TestDoctor_addsWarningForUnknownVersion(t *testing.T) {
 	a := newAppWithFakes(&fakeProvider{
 		name:    "claude",
 		version: contracts.StorageVersion{Adapter: "claude", Version: "unknown", Fingerprint: "deadbeef"},
@@ -107,7 +101,10 @@ func TestDoctor_includesUnknownVersionNote(t *testing.T) {
 	if len(healths) != 1 {
 		t.Fatalf("got %d health entries, want 1", len(healths))
 	}
-	if healths[0].Note == "" {
-		t.Error("Doctor should attach a Note for unknown version")
+	if len(healths[0].Warnings) == 0 {
+		t.Error("Doctor should record a warning for unknown version")
+	}
+	if len(healths[0].Errors) != 0 {
+		t.Errorf("unknown version is a warning, not an error: %v", healths[0].Errors)
 	}
 }

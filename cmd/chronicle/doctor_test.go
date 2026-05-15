@@ -64,3 +64,28 @@ func TestDoctorText_emptyHealthsExplains(t *testing.T) {
 		t.Errorf("empty doctor should explain itself, got: %q", buf.String())
 	}
 }
+
+// TestDoctorText_rendersErrorsAndWarnings confirms that the
+// renderer puts errors and warnings on their own labeled lines.
+// The user reads "Error:" and "Warning:" prefixes to spot
+// trouble at a glance, so the format is part of the user-facing
+// contract.
+func TestDoctorText_rendersErrorsAndWarnings(t *testing.T) {
+	healths := []composition.ProviderHealth{{
+		Name:      "claude",
+		Reachable: false,
+		Errors:    []string{"permission denied: /etc/secret"},
+		Warnings:  []string{"unrecognized fingerprint xyz"},
+	}}
+	var buf bytes.Buffer
+	if err := writeDoctorText(&buf, healths); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Error:") || !strings.Contains(out, "permission denied") {
+		t.Errorf("error not rendered with Error: label in:\n%s", out)
+	}
+	if !strings.Contains(out, "Warning:") || !strings.Contains(out, "unrecognized fingerprint") {
+		t.Errorf("warning not rendered with Warning: label in:\n%s", out)
+	}
+}

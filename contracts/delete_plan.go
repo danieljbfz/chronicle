@@ -1,12 +1,13 @@
 package contracts
 
-// DeletePlan is the result an adapter's PlanDelete or PlanOrphanScan
-// method returns. The plan describes every path that would move to the
-// trash if the user approved the plan, along with the total recoverable
-// size and any warnings that should be shown before the user confirms.
-// Composition shows the entire plan to the user before any filesystem
-// change happens, so the user always knows what is about to disappear.
-// Even an executed plan stays reversible until the trash is emptied,
+// DeletePlan is the result a Cleaner's PlanDelete or
+// PlanOrphanScan method returns. The plan describes every path
+// that would move to the trash if the user approved the plan,
+// along with the total recoverable size and any warnings that
+// should be shown before the user confirms. Composition shows the
+// entire plan to the user before any filesystem change happens,
+// so the user always knows what is about to disappear. Even an
+// executed plan stays reversible until the trash is emptied,
 // because deletion in chronicle always means "move to trash."
 type DeletePlan struct {
 	SessionID SessionID

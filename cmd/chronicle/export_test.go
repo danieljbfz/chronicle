@@ -32,12 +32,6 @@ func (stubProvider) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.Sessio
 func (s stubProvider) ReadSession(_ fs.FS, _ contracts.SessionID) (contracts.Conversation, error) {
 	return s.convo, nil
 }
-func (stubProvider) PlanDelete(fs.FS, contracts.SessionID) (contracts.DeletePlan, error) {
-	return contracts.DeletePlan{}, nil
-}
-func (stubProvider) PlanOrphanScan(fs.FS) (contracts.DeletePlan, error) {
-	return contracts.DeletePlan{}, nil
-}
 
 // TestRunExport_writesMarkdownToStdoutWhenNoOut checks the default
 // output path. With no -o flag, the rendered Markdown ends up on

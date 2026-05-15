@@ -287,20 +287,14 @@ func locateInEmptyWindows(root fs.FS, id contracts.SessionID) (string, bool) {
 	return "", false
 }
 
-// PlanDelete and PlanOrphanScan call the stubs in cleanup_stub.go.
-// The real cascade-aware versions arrive once the trash subsystem
-// exists. Until then chronicle's destructive code paths against
-// Copilot data simply do not exist.
-func (p *Provider) PlanDelete(root fs.FS, id contracts.SessionID) (contracts.DeletePlan, error) {
-	return planDeleteStub(root, id)
-}
-
-func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
-	return planOrphanScanStub(root)
-}
-
 // Compile-time check: *Provider satisfies contracts.Provider. If
-// we ever add a method to the interface or change a signature, the
-// build fails right here with an error that names the missing
-// method.
+// we ever add a method to the interface or change a signature,
+// the build fails right here with an error that names the
+// missing method.
+//
+// Note: this adapter does not yet implement contracts.Cleaner.
+// The destructive paths arrive once the trash subsystem is in
+// place. Until then, no code in chronicle can accidentally delete
+// anything from a Copilot session, because the cleanup methods
+// do not exist on this type.
 var _ contracts.Provider = (*Provider)(nil)

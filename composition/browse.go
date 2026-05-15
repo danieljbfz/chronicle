@@ -15,6 +15,8 @@ import (
 	"errors"
 	"io/fs"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/danieljbfz/chronicle/adapters"
 	"github.com/danieljbfz/chronicle/contracts"
 	"github.com/danieljbfz/chronicle/internal/config"
@@ -45,11 +47,24 @@ type App struct {
 // per enabled tool, and runs Detect on each provider so the doctor
 // view has results to show.
 //
-// Detect failures get a small note. A provider whose data
-// directory is missing (e.g., the user has not installed that
-// tool, or has never run it) reports fs.ErrNotExist. We treat
-// that as "this provider is just not active right now" and move
-// on. Other Detect errors are real, and we surface them.
+// Detect runs in parallel across all providers. Each Detect call
+// reads one small file from disk, and we have no reason to wait
+// for the slowest one before starting the next. With two
+// providers (Claude and Copilot) the speedup is barely visible.
+// With ten providers, the savings start to matter, and the code
+// shape stays the same.
+//
+// We use errgroup, the standard "fan out N tasks, wait for all,
+// collect first error" helper from golang.org/x/sync. It cleans
+// up the error and synchronisation handling that a hand-rolled
+// sync.WaitGroup would otherwise need.
+//
+// Detect failures get classified the same way they did when this
+// ran serially. A provider whose data directory is missing (e.g.,
+// the user has not installed that tool, or has never run it)
+// reports fs.ErrNotExist. We treat that as "this provider is just
+// not active right now" and move on. Any other Detect error is
+// real, and the first one we hit aborts New.
 func New() (*App, error) {
 	locations, err := paths.Resolve()
 	if err != nil {
@@ -72,18 +87,39 @@ func New() (*App, error) {
 		}
 	}
 
-	for _, p := range a.providers {
-		sv, err := p.Provider.Detect(p.FS)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			return nil, err
-		}
-		p.Version = sv
+	if err := a.detectAll(); err != nil {
+		return nil, err
 	}
 
 	return a, nil
+}
+
+// detectAll fans out Detect across every registered provider in
+// parallel and waits for all of them to finish before returning.
+// We split it out from New so the parallel logic has one clear
+// home and so tests can call it without rebuilding the rest of
+// the App.
+func (a *App) detectAll() error {
+	group := new(errgroup.Group)
+	for _, p := range a.providers {
+		p := p // capture loop variable for the closure
+		group.Go(func() error {
+			sv, err := p.Provider.Detect(p.FS)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return nil
+				}
+				return err
+			}
+			// Each provider entry is its own pointer, so writing
+			// to p.Version from a goroutine does not race with
+			// any other goroutine. The race detector confirms
+			// this in `make test`.
+			p.Version = sv
+			return nil
+		})
+	}
+	return group.Wait()
 }
 
 // NewForTest builds an App from fakes. Production code should use

@@ -63,7 +63,11 @@ func detectInDir(root fs.FS) (contracts.StorageVersion, error) {
 		return contracts.StorageVersion{}, err
 	}
 	if !parseable {
-		return contracts.StorageVersion{}, errors.New("no parseable JSON records in " + file)
+		// The file existed but every line failed JSON decoding.
+		// The resilience contract says this is the one shape that
+		// does count as an error, because we are clearly not
+		// pointed at a Copilot session file at all.
+		return contracts.StorageVersion{}, newError("detect", file, errors.New("no parseable JSON records"))
 	}
 
 	fp := steps.Fingerprint(inputs)

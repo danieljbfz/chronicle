@@ -50,9 +50,10 @@ func writeDoctorJSON(w io.Writer, healths []composition.ProviderHealth) error {
 }
 
 // writeDoctorText renders the health list as a stack of plain-text
-// blocks, one per provider. The format is meant to be skimmed: the
-// provider name on its own line, followed by indented label-value
-// pairs.
+// blocks, one per provider. The format is meant to be skimmed:
+// the provider name on its own line, followed by indented
+// label-value pairs, then any errors and warnings as separate
+// labeled lists.
 func writeDoctorText(w io.Writer, healths []composition.ProviderHealth) error {
 	if len(healths) == 0 {
 		fmt.Fprintln(w, "No providers detected. Enable providers in ~/.config/chronicle/config.toml.")
@@ -67,8 +68,11 @@ func writeDoctorText(w io.Writer, healths []composition.ProviderHealth) error {
 		}
 		fmt.Fprintf(w, "  Reachable:   %v\n", h.Reachable)
 		fmt.Fprintf(w, "  Sessions:    %d\n", h.SessionCount)
-		if h.Note != "" {
-			fmt.Fprintf(w, "  Note:        %s\n", h.Note)
+		for _, msg := range h.Errors {
+			fmt.Fprintf(w, "  Error:       %s\n", msg)
+		}
+		for _, msg := range h.Warnings {
+			fmt.Fprintf(w, "  Warning:     %s\n", msg)
 		}
 		fmt.Fprintln(w)
 	}

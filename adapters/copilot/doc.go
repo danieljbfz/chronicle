@@ -26,10 +26,9 @@
 // current state. The eventlog.go file does that work, and parse.go
 // turns the reconstructed state into a contracts.Conversation.
 //
-// The package today is read-only. Detect, ListProjects, ListSessions,
-// and ReadSession all do real work. PlanDelete and PlanOrphanScan
-// return ErrNotImplemented and the cleanup work will fill them in
-// once the trash subsystem is ready.
+// The package today is read-only. *Provider implements
+// contracts.Provider but not contracts.Cleaner. The cleanup
+// methods will be added once the trash subsystem is ready.
 //
 // Multiple roots. A single chronicle install often needs to read
 // from more than one Copilot root: the user might have both VS Code

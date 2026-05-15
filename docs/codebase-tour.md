@@ -10,11 +10,14 @@ The architecture follows the Hexagonal pattern, also called Ports and Adapters o
 
 | Concept | Where it lives |
 |---|---|
-| The port (the contract every reader has to satisfy) | `contracts/Provider` |
+| The port for read-only operations | `contracts/Provider` |
+| The optional port for destructive operations | `contracts/Cleaner` |
 | The adapters (one per upstream tool) | `adapters/claude/`, `adapters/copilot/`, future `adapters/cursor/`, ... |
 | The application core (orchestrates the adapters) | `composition/` |
 | The pure transforms (filter, render, fingerprint) | `steps/` |
 | The driving sides (the CLI today, TUI and web later) | `cmd/chronicle/` |
+
+The `Provider` interface covers everything a read-only chronicle install needs. The optional `Cleaner` interface adds destructive operations. Adapters that support cleanup implement both. Adapters that do not (every adapter today) implement only `Provider`. Composition uses a type assertion (`if c, ok := provider.(Cleaner); ok`) to find which adapters support cleanup. This keeps the read-only contract small and makes the destructive surface visible in the type system: any code that touches `Cleaner` is doing something irreversible.
 
 The strict rule is that imports only ever flow downhill. The contracts package is a leaf and depends on nothing inside chronicle. The adapters depend on contracts. The steps depend on contracts. Composition depends on adapters and steps. The CLI depends on composition. Nothing ever flows the other way.
 
@@ -59,8 +62,8 @@ The leaf layer. Pure types, no I/O, no imports of any other chronicle package.
 | `storage_version.go` | The `StorageVersion` and `Capabilities` structs that adapters use to advertise what they understand about the storage they detected. |
 | `project.go` | The `Project` and `SessionSummary` structs used by listing pages. |
 | `delete_plan.go` | The `DeletePlan` and `DeleteItem` structs the cleanup feature will use. |
-| `provider.go` | The `Provider` interface every adapter has to satisfy. The architectural seam. |
-| `provider_test.go` | A compile-time check that proves the test infrastructure can satisfy the `Provider` interface. |
+| `provider.go` | The `Provider` interface every adapter has to satisfy plus the optional `Cleaner` interface. The two architectural seams. |
+| `provider_test.go` | Compile-time checks proving a stub type satisfies `Provider` alone, and a separate stub satisfies both `Provider` and `Cleaner`. |
 | `block_test.go` | A compile-time check that every block type satisfies the `Block` interface, plus pin-down tests for the `Role` constants. |
 | `conversation_test.go` | Behaviour tests for `FirstUserPrompt` and `IsAbandoned`. |
 
@@ -81,11 +84,12 @@ The Claude Code adapter. Reads `~/.claude` and turns its JSONL session files int
 | `doc.go` | The package-level documentation. Describes the directory layout under `~/.claude` and what the package implements today. |
 | `detect.go` | Storage version detection. Walks the projects directory, reads up to two hundred records from the first session file, and computes a fingerprint. Maps known fingerprints to internal version names like `claude-1.0`. |
 | `parse.go` | The JSONL parser. Reads one session file end to end and produces a `Conversation`. Handles every kind of record and every kind of content block. Preserves anything it does not recognize as an `UnknownBlock`. |
-| `provider.go` | The `Provider` implementation that wires `detect.go` and `parse.go` into the contract every layer above expects. Implements `Name`, `Detect`, `ListProjects`, `ListSessions`, `ReadSession`, plus stubs for the future cleanup methods. |
-| `cleanup_stub.go` | Stand-in for the cleanup methods. Returns `ErrNotImplemented` until the trash subsystem lands. |
+| `provider.go` | The `Provider` implementation. Implements `Name`, `Detect`, `ListProjects`, `ListSessions`, `ReadSession`. Does not implement `Cleaner` yet — the destructive paths arrive once the trash subsystem is ready. |
+| `errors.go` | The typed `Error` value the package returns from every public function. Carries `Op`, `Path`, and `Err` fields, supports `errors.Is` and `errors.As`. |
 | `detect_test.go` | Behaviour tests for the detection logic, against in-memory fixtures. |
 | `parse_test.go` | Behaviour tests for the parser, including the resilience canary. |
-| `provider_test.go` | Behaviour tests for the `Provider` implementation against a hand-built fake filesystem. |
+| `provider_test.go` | Behaviour tests for the `Provider` implementation against a hand-built fake filesystem, plus the read-only-status test that confirms `*Provider` does not satisfy `contracts.Cleaner` yet. |
+| `errors_test.go` | Behaviour tests for the typed error: format, `Unwrap`, `errors.Is`, `errors.As`. |
 | `testdata/v1_0/` | Real-shape session fixtures used by the parser and provider tests. |
 | `testdata/synthetic_future.jsonl` | The canary fixture. Contains an unknown record type and an unknown content kind. The test that consumes it asserts both survive parsing as `UnknownBlock` values. |
 | `testdata/README.txt` | Human-readable explanation of every fixture and what it tests. |
@@ -103,9 +107,9 @@ The big difference: each Copilot session file is an event log, not a stream of i
 | `eventlog.go` | The event-log replayer. Reads kind-0 snapshots and applies kind-1 (set field) and kind-2 (append to array) patches in order. Returns the reconstructed snapshot plus a list of any unknown event kinds it saw. |
 | `parse.go` | Turns the replayed snapshot into a `Conversation`. Each entry in the snapshot's `requests` array becomes one user message and one assistant message. Recognizes markdown, thinking blocks, tool invocations, and a handful of UI-only response parts that get dropped. |
 | `detect.go` | Storage version detection. Walks workspaces and falls back to empty-window chats. Same fingerprinting algorithm as Claude. |
-| `provider.go` | The `Provider` implementation. Knows how to list projects (one per workspace plus the synthetic empty-window bucket), list sessions, and read one session by id across both workspace and empty-window storage. |
-| `cleanup_stub.go` | Stand-in for the cleanup methods. Returns `ErrNotImplemented` until the trash subsystem lands. |
-| `*_test.go` | Behaviour tests for each piece, with the resilience canary in `eventlog_test.go` and `parse_test.go`. |
+| `provider.go` | The `Provider` implementation. Knows how to list projects (one per workspace plus the synthetic empty-window bucket), list sessions, and read one session by id across both workspace and empty-window storage. Does not implement `Cleaner` yet. |
+| `errors.go` | The typed `Error` value, mirroring the Claude adapter's shape so both packages return errors with the same structure. |
+| `*_test.go` | Behaviour tests for each piece, with the resilience canary in `eventlog_test.go` and `parse_test.go`, and the read-only-status test in `provider_test.go`. |
 | `testdata/v3/` | Real-shape session fixtures for VS Code Copilot Chat schema version 3. |
 | `testdata/synthetic_future.jsonl` | The Copilot canary. Contains an unknown event kind in the middle of the stream and an unknown response part inside a request. Both must survive parsing. |
 
@@ -127,9 +131,10 @@ The application core. The only layer that talks to the real filesystem in produc
 
 | File | Job |
 |---|---|
-| `browse.go` | The `App` type, its `New` constructor, and the read-only methods every entrypoint calls. `ListProjects`, `ListSessionsAll`, `ReadSession`. Plus `NewForTest` so test code can build an `App` from fake providers. |
-| `doctor.go` | The `Doctor()` method that returns one `ProviderHealth` per detected provider for the `chronicle doctor` command. |
+| `browse.go` | The `App` type, its `New` constructor, and the read-only methods every entrypoint calls. `ListProjects`, `ListSessionsAll`, `ReadSession`. Plus `NewForTest` so test code can build an `App` from fake providers. `New` runs every provider's `Detect` in parallel through `errgroup`. |
+| `doctor.go` | The `Doctor()` method returns one `ProviderHealth` per detected provider for the `chronicle doctor` command. The result splits errors and warnings into separate slices so the renderer and any consuming script can branch on severity without parsing message text. |
 | `browse_test.go` | Behaviour tests for the `App` methods, using a `fakeProvider` that satisfies the `Provider` interface without touching disk. |
+| `integration_test.go` | End-to-end test that runs `composition.New()` against a real (temporary) home directory with a real fixture session inside. Exercises the full wiring path that the unit tests skip. |
 
 ### `internal/paths/`
 

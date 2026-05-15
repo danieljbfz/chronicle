@@ -1,10 +1,11 @@
 package copilot
 
 import (
-	"errors"
 	"os"
 	"testing"
 	"testing/fstest"
+
+	"github.com/danieljbfz/chronicle/contracts"
 )
 
 // fixturePair returns the bytes of one fixture file under
@@ -125,14 +126,17 @@ func TestProvider_ReadSession_findsEmptyWindowSession(t *testing.T) {
 	}
 }
 
-// TestProvider_PlanDeleteReturnsNotImplemented pins the temporary
-// behaviour of the cleanup stubs. Until the trash subsystem lands,
-// every destructive method must return the sentinel error so
-// composition can recognize the case with errors.Is.
-func TestProvider_PlanDeleteReturnsNotImplemented(t *testing.T) {
-	p := New()
-	_, err := p.PlanDelete(buildFS(t), "small-session-1")
-	if !errors.Is(err, ErrNotImplemented) {
-		t.Errorf("PlanDelete err = %v, want ErrNotImplemented", err)
+// TestProvider_doesNotImplementCleanerYet pins the read-only
+// status of the Copilot adapter today. The cascade-aware cleanup
+// arrives once the trash subsystem is in place. Until then, the
+// type system itself prevents anyone from accidentally calling
+// destructive methods, because *Provider does not satisfy the
+// contracts.Cleaner interface. If anyone adds the cleanup methods
+// without going through a proper review of the cascade-delete
+// map, this test fails and forces the conversation.
+func TestProvider_doesNotImplementCleanerYet(t *testing.T) {
+	var p any = New()
+	if _, ok := p.(contracts.Cleaner); ok {
+		t.Error("*Provider should not satisfy contracts.Cleaner until the trash subsystem lands")
 	}
 }

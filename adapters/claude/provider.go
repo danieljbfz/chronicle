@@ -237,26 +237,16 @@ func locateSessionFile(root fs.FS, id contracts.SessionID) (string, error) {
 	return "", fs.ErrNotExist
 }
 
-// PlanDelete and PlanOrphanScan call the stubs in cleanup_stub.go
-// for now. The real cascade-aware versions arrive once the trash
-// subsystem exists to back them up.
+// Compile-time check: *Provider satisfies contracts.Provider.
+// The blank identifier discards the value, and the type
+// annotation forces the compiler to verify the relationship. If
+// we ever add a method to the interface or change a signature,
+// the build fails right here with an error that names the
+// missing method.
 //
-// Keeping the destructive paths as stubs is a safety choice. The
-// stub returns ErrNotImplemented and that is all it does. There is
-// no code in chronicle today that can accidentally delete anything,
-// because the code that would do the deleting has not been written
-// yet.
-func (p *Provider) PlanDelete(root fs.FS, id contracts.SessionID) (contracts.DeletePlan, error) {
-	return planDeleteStub(root, id)
-}
-
-func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
-	return planOrphanScanStub(root)
-}
-
-// Compile-time check: *Provider satisfies contracts.Provider. The
-// blank identifier discards the value, and the type annotation
-// forces the compiler to verify the relationship. If we ever add a
-// method to the interface or change a signature, the build fails
-// right here with an error that names the missing method.
+// Note: this adapter does not yet implement contracts.Cleaner.
+// The destructive paths arrive once the trash subsystem is in
+// place. Until then, no code in chronicle can accidentally delete
+// anything from a Claude session, because the cleanup methods do
+// not exist on this type.
 var _ contracts.Provider = (*Provider)(nil)
