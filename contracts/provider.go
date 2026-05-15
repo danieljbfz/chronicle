@@ -15,10 +15,12 @@ package contracts
 //    This is the canonical Go shape: the caller writes
 //        result, err := provider.ReadSession(...)
 //        if err != nil { return err }
-//    Errors are values, not exceptions. There is no try/catch. The
-//    pattern looks repetitive but makes failure paths visible at every
-//    call site, which is exactly what we want for a tool that reads
-//    other tools' shifting on-disk formats. See docs/go-primer.md §7.
+//    Errors are values, not exceptions, and there is no try/except.
+//    Python code typically raises `OSError` and lets the stack unwind
+//    until something catches it; Go demands the caller decide what to
+//    do with the error at the moment it appears. The pattern looks
+//    repetitive but makes failure paths visible at every call site —
+//    useful for a tool that reads other tools' shifting on-disk formats.
 //
 // 3. `io/fs` AND `fs.FS` — TESTABLE FILESYSTEMS. Methods take `root fs.FS`
 //    rather than a path string. `fs.FS` is a tiny interface from the
@@ -41,8 +43,9 @@ import "io/fs"
 // parseable as JSON at all. A file with valid JSON whose schema we do not
 // recognize is Version = "unknown", not an error.
 //
-// See docs/superpowers/specs/2026-05-15-chronicle-design.md §6 for the
-// full resilience contract every Provider implementation must satisfy.
+// Every Provider implementation must satisfy the resilience contract:
+// detect storage version, parse tolerantly, advertise capabilities, and
+// warn (not crash) on unknown shapes.
 type Provider interface {
 	Name() string
 

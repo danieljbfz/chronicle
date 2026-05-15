@@ -90,7 +90,8 @@ type ImageBlock struct {
 // UnknownBlock preserves provider content we do not recognize. The
 // renderer shows it as "Unknown block · click to inspect", and the
 // resilience contract requires we keep the raw JSON rather than dropping
-// it. See docs/research/07-schema-resilience.md.
+// it — when Claude or Copilot ship a new block kind, we surface it
+// instead of losing it.
 type UnknownBlock struct {
 	Kind string
 	Raw  json.RawMessage

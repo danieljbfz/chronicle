@@ -8,7 +8,7 @@ package contracts
 //    reads as: "this is a method on `Conversation`; inside the body, `c`
 //    refers to the conversation the caller is operating on." Pick a
 //    single-letter receiver tied to the type (`c` for Conversation, `m`
-//    for Message) and stay consistent. See docs/naming-conventions.md.
+//    for Message) and stay consistent.
 //
 // 2. VALUE vs POINTER RECEIVERS. `(c Conversation)` is a *value* receiver:
 //    the method sees a copy of the struct and cannot change the original.
@@ -16,10 +16,12 @@ package contracts
 //    Use value receivers when the method reads but does not mutate; use
 //    pointer receivers for stateful types like `*App` (in composition).
 //
-// 3. THE `for _, x := range slice` LOOP. The standard way to iterate. The
-//    blank identifier `_` says "I do not care about the index" — using
-//    just `_, m := range c.Messages` is idiomatic when only the value
-//    matters. See docs/go-primer.md §13.
+// 3. THE `for _, x := range slice` LOOP. The standard way to iterate
+//    over a slice. Where Python's `for m in messages` ignores indices
+//    by default, Go's range loop yields both the index and the value,
+//    and you opt out of the index with the blank identifier `_`.
+//    Writing `for _, m := range c.Messages` is the idiomatic shape when
+//    only the value matters.
 //
 // 4. TYPE ASSERTIONS. The expression `b.(TextBlock)` reads as: "I expect
 //    the interface value `b` to actually hold a `TextBlock` at runtime;

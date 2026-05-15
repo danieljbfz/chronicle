@@ -6,8 +6,7 @@
 //
 // In hexagonal architecture terms, this package is the "port" side: a
 // pure description of the domain with no I/O and no dependency on any
-// outside system. See docs/superpowers/specs/2026-05-15-chronicle-design.md
-// §3 for the architectural picture.
+// outside system.
 //
 // -----------------------------------------------------------------------
 // Go concepts introduced in this file
@@ -29,7 +28,9 @@
 // 3. CONSTANTS WITH `iota`-LIKE NAMING. Below we declare `Role` constants
 //    using a block `const (...)`. Go's standard library uses `MixedCaps`
 //    for constants (e.g. `time.RFC3339`), not `UPPER_SNAKE_CASE`. We
-//    follow that. See docs/naming-conventions.md.
+//    follow that. Python's `UPPER_SNAKE_CASE` convention for constants
+//    has no equivalent in Go — everything follows the same exported /
+//    unexported casing rule, including constants.
 package contracts
 
 // ProjectID identifies a project within a provider. It is opaque to the UI;
