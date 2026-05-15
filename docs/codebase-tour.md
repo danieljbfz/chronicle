@@ -12,12 +12,12 @@ The architecture follows the Hexagonal pattern, also called Ports and Adapters o
 |---|---|
 | The port for read-only operations | `contracts/Provider` |
 | The optional port for destructive operations | `contracts/Cleaner` |
-| The adapters (one per upstream tool) | `adapters/claude/`, `adapters/copilot/`, future `adapters/cursor/`, ... |
+| The adapters (one per upstream tool) | `adapters/claude/`, `adapters/copilotchat/`, `adapters/copilotagent/`, future `adapters/cursor/`, ... |
 | The application core (orchestrates the adapters) | `composition/` |
 | The pure transforms (filter, render, fingerprint) | `steps/` |
 | The driving sides (the CLI today, TUI and web later) | `cmd/chronicle/` |
 
-The `Provider` interface covers everything a read-only chronicle install needs. The optional `Cleaner` interface adds destructive operations. Adapters that support cleanup implement both. Adapters that do not (every adapter today) implement only `Provider`. Composition uses a type assertion (`if c, ok := provider.(Cleaner); ok`) to find which adapters support cleanup. This keeps the read-only contract small and makes the destructive surface visible in the type system: any code that touches `Cleaner` is doing something irreversible.
+The `Provider` interface covers everything a read-only chronicle install needs. Optional capability interfaces (`Cleaner`, `MemoryStore`, `GlobalMemoryStore`, `GlobalConfig`, `Resumable`) layer destructive or tool-specific operations on top. Adapters implement whichever optional interfaces match their upstream tool. The Claude adapter implements all of them today. The Copilot Chat adapter implements `Cleaner`. The Copilot agent adapter is read-only for now. Composition uses a type assertion (`if c, ok := provider.(Cleaner); ok`) to find which adapters support each optional capability. This keeps the base contract small and makes every destructive surface visible in the type system: any code that touches a capability interface is doing something the read-only contract did not allow.
 
 The strict rule is that imports only ever flow downhill. The contracts package is a leaf and depends on nothing inside chronicle. The adapters depend on contracts. The steps depend on contracts. Composition depends on adapters and steps. The CLI depends on composition. Nothing ever flows the other way.
 
@@ -28,7 +28,9 @@ chronicle/
 ├── cmd/chronicle/        the binary's main package and CLI subcommands
 ├── adapters/             one folder per upstream tool, plus the registry
 │   ├── all.go            the registry — one line per provider
-│   └── claude/           the Claude Code adapter
+│   ├── claude/           the Claude Code adapter
+│   ├── copilotchat/      the VS Code Copilot Chat extension adapter
+│   └── copilotagent/     the @github/copilot-sdk runtime adapter
 ├── composition/          the application core, the only layer that touches disk
 ├── contracts/            shared domain types and the Provider interface
 ├── internal/             helpers private to chronicle
@@ -96,25 +98,40 @@ The Claude Code adapter. Reads `~/.claude` and turns its JSONL session files int
 | `testdata/synthetic_future.jsonl` | The canary fixture. Contains an unknown record type and an unknown content kind. The test that consumes it asserts both survive parsing as `UnknownBlock` values. |
 | `testdata/README.txt` | Human-readable explanation of every fixture and what it tests. |
 
-### `adapters/copilot/`
+### `adapters/copilotchat/`
 
-The VS Code Copilot Chat adapter. Reads `workspaceStorage/<hash>/chatSessions/` (per-workspace chats) and `globalStorage/emptyWindowChatSessions/` (chats from folder-less VS Code windows). One folder, very different storage shape from Claude.
+The VS Code Copilot Chat extension adapter. Reads `workspaceStorage/<hash>/chatSessions/` (per-workspace chats) and `globalStorage/emptyWindowChatSessions/` (chats from folder-less VS Code windows). One folder, very different storage shape from Claude.
 
-The big difference: each Copilot session file is an event log, not a stream of independent records. The first line is a full snapshot, and every line after that is a small patch that mutates the snapshot. Reading a session means replaying every line in order. The `eventlog.go` file does the replay.
+The big difference: each Copilot Chat session file is an event log, not a stream of independent records. The first line is a full snapshot, and every line after that is a small patch that mutates the snapshot. Reading a session means replaying every line in order. The `eventlog.go` file does the replay.
 
 | File | Job |
 |---|---|
 | `doc.go` | Package-level documentation. Describes the VS Code storage layout and the event-log replay model. |
 | `workspace.go` | Workspace decoding. Reads `workspace.json` to map an opaque hash like `0769784b...` back to the friendly project name. Defines the synthetic "(no workspace)" project for empty-window chats. |
 | `eventlog.go` | The event-log replayer. Reads kind-0 snapshots and applies kind-1 (set field) and kind-2 (append to array) patches in order. Returns the reconstructed snapshot plus a list of any unknown event kinds it saw. |
-| `parse.go` | Turns the replayed snapshot into a `Conversation`. Each entry in the snapshot's `requests` array becomes one user message and one assistant message. Recognizes markdown, thinking blocks, tool invocations, and a handful of UI-only response parts that get dropped. |
+| `parse.go` | Turns the replayed snapshot into a `Conversation`. Each entry in the snapshot's `requests` array becomes one user message and one assistant message. Recognizes markdown, thinking blocks, tool invocations, and a handful of UI-only response parts that get dropped. Reads `inputState.selectedModel.identifier` onto `Conversation.Model` so the by-model summary works for this adapter. |
 | `detect.go` | Storage version detection. Walks workspaces and falls back to empty-window chats. Same fingerprinting algorithm as Claude. |
 | `provider.go` | The `Provider` implementation. Knows how to list projects (one per workspace plus the synthetic empty-window bucket), list sessions, and read one session by id across both workspace and empty-window storage. |
 | `cleanup.go` | The `Cleaner` implementation. `PlanDelete` covers both kinds of session (workspace-bound and folder-less window). `PlanOrphanScan` finds `chatEditingSessions/` directories whose owning chat is gone. |
 | `errors.go` | The typed `Error` value, mirroring the Claude adapter's shape so both packages return errors with the same structure. |
 | `*_test.go` | Behaviour tests for each piece, with the resilience canary in `eventlog_test.go` and `parse_test.go`, and the cleanup tests in `cleanup_test.go`. |
 | `testdata/v3/` | Real-shape session fixtures for VS Code Copilot Chat schema version 3. |
-| `testdata/synthetic_future.jsonl` | The Copilot canary. Contains an unknown event kind in the middle of the stream and an unknown response part inside a request. Both must survive parsing. |
+| `testdata/synthetic_future.jsonl` | The Copilot Chat canary. Contains an unknown event kind in the middle of the stream and an unknown response part inside a request. Both must survive parsing. |
+
+### `adapters/copilotagent/`
+
+The GitHub Copilot agent runtime adapter. Reads `~/.copilot/session-state/<sessionId>/events.jsonl`, which is what the `@github/copilot-sdk` `LocalSessionManager` writes when the agent runs from any frontend (standalone Copilot CLI, VS Code's agent mode, or any SDK consumer). The data has zero overlap with the chat extension's storage on disk, which is why this is a distinct adapter package rather than a version of `copilotchat`.
+
+The storage shape is a typed event envelope per line. Every event has a `type` field, a `data` payload whose schema depends on the type, and envelope fields (`timestamp`, `id`, `parentId`). Known types include `session.start`, `user.message`, `assistant.message`, `tool.execution_start`, `tool.execution_complete`, and `session.shutdown`. Unknown types survive as `UnknownBlock` values inside a meta message, the same resilience rule every adapter follows.
+
+| File | Job |
+|---|---|
+| `doc.go` | Package-level documentation. Lists the directory layout under one session folder, the known event types, and the relationship to the Copilot Chat adapter. |
+| `detect.go` | Storage version detection. Returns the single known version when `session-state/` exists, and an unknown-version sentinel when the directory is missing. |
+| `parse.go` | The event-stream parser. Reads `events.jsonl` line-by-line, folds the events into a `Conversation`, and reads `selectedModel` from the `session.start` event onto `Conversation.Model`. Joins `tool.execution_start` and `tool.execution_complete` events into matching `ToolUseBlock` and `ToolResultBlock` pairs. |
+| `provider.go` | The `Provider` implementation. Surfaces every session under one synthetic `agent-sessions` project, because the runtime stores sessions in a flat list rather than grouped by working directory. |
+| `errors.go` | The typed `Error` value, same shape as the other two adapters. |
+| `provider_test.go` | Every behaviour test for the package: detection, listing, reading, the model wiring, and the unknown-event-type canary. |
 
 ### `steps/`
 
