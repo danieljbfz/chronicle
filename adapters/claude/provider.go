@@ -87,7 +87,7 @@ func (p *Provider) ListProjects(root fs.FS) ([]contracts.Project, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, newError("list projects", projectsDir, err)
 	}
 	var projects []contracts.Project
 	for _, e := range entries {
@@ -96,7 +96,7 @@ func (p *Provider) ListProjects(root fs.FS) ([]contracts.Project, error) {
 		}
 		proj, err := summarizeProject(root, e.Name())
 		if err != nil {
-			return nil, err
+			return nil, newError("summarize project", e.Name(), err)
 		}
 		projects = append(projects, proj)
 	}
@@ -184,7 +184,7 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 	dir := path.Join(projectsDir, string(project))
 	entries, err := fs.ReadDir(root, dir)
 	if err != nil {
-		return nil, err
+		return nil, newError("list sessions", dir, err)
 	}
 	var summaries []contracts.SessionSummary
 	for _, e := range entries {
@@ -195,7 +195,7 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 		sv := p.cached
 		c, err := readSessionFile(root, sessionFile, sv)
 		if err != nil {
-			return nil, err
+			return nil, newError("read session", sessionFile, err)
 		}
 		info, _ := e.Info()
 		var size int64
@@ -232,9 +232,21 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Conversation, error) {
 	file, err := locateSessionFile(root, id)
 	if err != nil {
-		return contracts.Conversation{}, err
+		// locateSessionFile returns fs.ErrNotExist for an
+		// unknown session id, and the contracts.Provider doc
+		// asks ReadSession to propagate that sentinel as-is so
+		// callers can errors.Is against it. Any other error
+		// gets the operation-context wrapping.
+		if errors.Is(err, fs.ErrNotExist) {
+			return contracts.Conversation{}, err
+		}
+		return contracts.Conversation{}, newError("locate session", string(id), err)
 	}
-	return readSessionFile(root, file, p.cached)
+	conv, err := readSessionFile(root, file, p.cached)
+	if err != nil {
+		return contracts.Conversation{}, newError("read session", file, err)
+	}
+	return conv, nil
 }
 
 // projectFolderFromSessionPath pulls the encoded project folder
@@ -284,14 +296,14 @@ func locateSessionFile(root fs.FS, id contracts.SessionID) (string, error) {
 
 // Compile-time check: *Provider satisfies contracts.Provider.
 // The blank identifier discards the value, and the type
-// annotation forces the compiler to verify the relationship. If
-// we ever add a method to the interface or change a signature,
-// the build fails right here with an error that names the
-// missing method.
+// annotation forces the compiler to verify the relationship.
+// If we ever add a method to the interface or change a
+// signature, the build fails right here with an error that
+// names the missing method.
 //
-// Note: this adapter does not yet implement contracts.Cleaner.
-// The destructive paths arrive once the trash subsystem is in
-// place. Until then, no code in chronicle can accidentally delete
-// anything from a Claude session, because the cleanup methods do
-// not exist on this type.
+// The optional capabilities (Cleaner, MemoryStore,
+// GlobalMemoryStore, GlobalConfig, Resumable) each declare
+// their own assertion in the file where their methods live,
+// so a future contract change for any of them fails the build
+// right next to the methods that need to be updated.
 var _ contracts.Provider = (*Provider)(nil)

@@ -62,7 +62,7 @@ func (p *Provider) Detect(root fs.FS) (contracts.StorageVersion, error) {
 func (p *Provider) ListProjects(root fs.FS) ([]contracts.Project, error) {
 	projects, err := listWorkspaceProjects(root)
 	if err != nil {
-		return nil, err
+		return nil, newError("list projects", workspaceStorageDir, err)
 	}
 
 	if emptyProject, ok := emptyWindowProject(root); ok {
@@ -190,7 +190,7 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 	dir := chatDirForProject(project)
 	entries, err := fs.ReadDir(root, dir)
 	if err != nil {
-		return nil, err
+		return nil, newError("list sessions", dir, err)
 	}
 
 	var summaries []contracts.SessionSummary
@@ -201,7 +201,7 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 		sessionFile := path.Join(dir, entry.Name())
 		conv, err := readSessionFile(root, sessionFile, project, p.cached)
 		if err != nil {
-			return nil, err
+			return nil, newError("read session", sessionFile, err)
 		}
 		var size int64
 		if info, err := entry.Info(); err == nil {
@@ -253,11 +253,21 @@ func sessionTitle(conv contracts.Conversation) string {
 // read one session at a time.
 func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Conversation, error) {
 	if file, project, ok := locateInWorkspaces(root, id); ok {
-		return readSessionFile(root, file, project, p.cached)
+		conv, err := readSessionFile(root, file, project, p.cached)
+		if err != nil {
+			return contracts.Conversation{}, newError("read session", file, err)
+		}
+		return conv, nil
 	}
 	if file, ok := locateInEmptyWindows(root, id); ok {
-		return readSessionFile(root, file, emptyWindowProjectID, p.cached)
+		conv, err := readSessionFile(root, file, emptyWindowProjectID, p.cached)
+		if err != nil {
+			return contracts.Conversation{}, newError("read session", file, err)
+		}
+		return conv, nil
 	}
+	// Unknown session id. We return the bare sentinel so the
+	// caller's errors.Is checks see the type they expect.
 	return contracts.Conversation{}, fs.ErrNotExist
 }
 
@@ -294,11 +304,9 @@ func locateInEmptyWindows(root fs.FS, id contracts.SessionID) (string, bool) {
 }
 
 // Compile-time check: *Provider satisfies the base
-// contracts.Provider interface and the optional
-// contracts.Cleaner capability. If a future contract
-// change adds or renames a method, the build fails right
-// here with the missing method named.
-var (
-	_ contracts.Provider = (*Provider)(nil)
-	_ contracts.Cleaner  = (*Provider)(nil)
-)
+// contracts.Provider interface. The optional capabilities
+// declare their own assertions in the file where their
+// methods live (cleanup.go for Cleaner, and so on), so a
+// future contract change fails the build right next to the
+// methods that need updating.
+var _ contracts.Provider = (*Provider)(nil)
