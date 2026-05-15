@@ -226,10 +226,11 @@ func (a *App) TrashList() ([]TrashEntry, error) {
 		}
 		entry, err := readManifest(filepath.Join(a.locations.TrashDir, dirent.Name()))
 		if err != nil {
-			// Skip unreadable entries. A future doctor view
-			// can surface these as warnings. For now we
-			// silently move past them so the user sees what
-			// is restorable.
+			// We skip the entries that cannot be read. A future
+			// doctor view can surface these as warnings. For
+			// now the lister silently moves past them so the
+			// user still sees the entries that are intact and
+			// restorable.
 			continue
 		}
 		out = append(out, entry)

@@ -51,9 +51,10 @@ type GlobalConfig interface {
 	// removal.
 	//
 	// The function returns the path of the backup file the
-	// implementation wrote before the edit, so the caller
-	// can show the user where to recover from if the
-	// removal proves regretted.
+	// implementation wrote before the edit. The caller can
+	// show that path to the user, so the user knows where to
+	// restore from if the removal turns out to have been a
+	// mistake.
 	RemoveConfigProjectEntries(root fs.FS, keys []string) (backupPath string, err error)
 }
 

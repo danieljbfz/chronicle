@@ -70,9 +70,10 @@ type MemoryFile struct {
 	// see at a glance which memory files have grown large.
 	SizeBytes int64
 
-	// ModifiedAt is the file's last-modified time. A memory
-	// file that has not changed in months is a strong
-	// candidate for "this is stale, time to prune."
+	// ModifiedAt is the file's last-modified time. When a
+	// memory file has not changed in months, that is
+	// usually a sign the user has stopped relying on it,
+	// and the file becomes a good candidate to prune.
 	ModifiedAt time.Time
 }
 
@@ -120,7 +121,8 @@ type GlobalMemoryStore interface {
 	// PlanDeleteGlobalMemory returns a deletion plan for
 	// every user-global memory file the provider exposes.
 	// The plan goes through chronicle's normal trash flow,
-	// so a regretted clean can be undone.
+	// so the user can restore the files if the cleanup
+	// turns out to have been a mistake.
 	PlanDeleteGlobalMemory(root fs.FS) (DeletePlan, error)
 }
 
