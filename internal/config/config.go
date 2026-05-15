@@ -1,38 +1,10 @@
-// Package config loads and writes chronicle's user configuration. The
-// file lives at ~/.config/chronicle/config.toml. Missing fields fall back
-// to Defaults(). Every command-line flag overrides the config for that
-// invocation only.
-//
-// -----------------------------------------------------------------------
-// Go concepts introduced in this file
-// -----------------------------------------------------------------------
-//
-// 1. THIRD-PARTY IMPORTS via `go get`. `github.com/BurntSushi/toml` was
-//    added to go.mod with `go get github.com/BurntSushi/toml@latest`.
-//    Go fetches the package, records the exact version in go.mod, and
-//    a checksum in go.sum. Both files get committed.
-//
-// 2. STRUCT TAGS. The backticks at the end of each field — `toml:"name"`
-//    — are *struct tags*. They are strings the standard library and
-//    third-party libraries read via reflection at runtime. Here, the TOML
-//    decoder reads `toml:"retention_days"` and learns "when decoding
-//    TOML, the value at key `retention_days` goes into the
-//    RetentionDays field." JSON has its own tag: `json:"retention_days"`.
-//    YAML, env, sql columns — every library that maps between text and
-//    Go structs uses tags.
-//
-// 3. ERROR WRAPPING vs ERROR INSPECTION. The check
-//        if errors.Is(err, fs.ErrNotExist) { ... }
-//    is the canonical way to test for a specific kind of error in Go.
-//    `errors.Is` walks any chain of wrapped errors, so it works whether
-//    the error is the sentinel directly or a wrapped descendant of it.
-//    The matching `errors.As(err, &target)` extracts a typed error
-//    value, useful when you need its fields.
-//
-// 4. THE `os.ReadFile` HELPER. Reads an entire file into memory in one
-//    call. Fine for small files like config (a few KB max). For large
-//    files we stream via `bufio.Scanner` or `io.Copy`.
-
+// Package config loads chronicle's user configuration. The file lives
+// at ~/.config/chronicle/config.toml. Anything missing from that file
+// falls back to the values in Defaults, and any command-line flag at
+// run time overrides whatever the file or the defaults said. The rule
+// of thumb is simple: defaults are what you get with no setup, the
+// file is the persistent override, and flags are the per-invocation
+// override.
 package config
 
 import (
@@ -43,55 +15,94 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config is the in-memory shape of config.toml. Each nested struct maps
-// to a `[section]` in TOML; each field maps to a key inside that section
-// via the `toml:"..."` tag.
+// Config is the in-memory shape of config.toml. Each nested struct
+// maps to a [section] in TOML, and each field maps to a key inside
+// that section through the toml:"..." struct tag at the end of the
+// field declaration. The TOML decoder reads those tags through
+// reflection at runtime to match the file's layout to our types.
 type Config struct {
 	Trash     TrashConfig     `toml:"trash"`
 	UI        UIConfig        `toml:"ui"`
 	Providers ProvidersConfig `toml:"providers"`
 }
 
+// TrashConfig controls how long deleted items linger in the chronicle
+// trash before they can be permanently removed by the empty-trash
+// command. The default of thirty days is conservative, because the
+// only way to lose work to a chronicle delete is to also empty the
+// trash, and a month of grace is plenty.
 type TrashConfig struct {
 	RetentionDays int `toml:"retention_days"`
 }
 
+// UIConfig holds the configuration for both user interfaces chronicle
+// ships, namely the terminal user interface that comes later and the
+// local web frontend that comes after that. We keep them under one
+// section so the user has a single place to find UI settings.
 type UIConfig struct {
 	TUI TUIConfig `toml:"tui"`
 	Web WebConfig `toml:"web"`
 }
 
+// TUIConfig collects the settings that apply only to the terminal
+// frontend. Theme controls the colour scheme, FiltersDefault controls
+// which content filters are on at startup, and NerdFont tells the
+// renderer whether it can use Nerd Font glyphs or has to fall back to
+// plain ASCII for the icons.
 type TUIConfig struct {
 	Theme          string   `toml:"theme"`
 	FiltersDefault []string `toml:"filters_default"`
 	NerdFont       string   `toml:"nerd_font"`
 }
 
+// WebConfig collects the settings that apply only to the web frontend.
+// Host is the interface to bind to and we deliberately default to
+// loopback only, so the server is never exposed beyond the user's own
+// machine. A port of zero asks the operating system to pick any
+// available port at startup, which avoids the headache of port
+// conflicts. OpenBrowser controls whether chronicle pops the user's
+// default browser open at the right URL when the server starts.
 type WebConfig struct {
 	Host        string `toml:"host"`
 	Port        int    `toml:"port"`
 	OpenBrowser bool   `toml:"open_browser"`
 }
 
+// ProvidersConfig is the umbrella section that holds one subsection
+// per upstream tool chronicle supports. Adding a new provider in a
+// future plan means adding a new field here, and the rest of the
+// loading machinery picks it up automatically.
 type ProvidersConfig struct {
 	Claude  ClaudeConfig  `toml:"claude"`
 	Copilot CopilotConfig `toml:"copilot"`
 }
 
+// ClaudeConfig holds the settings for the Claude adapter. Enabled
+// turns the adapter on or off, and Root lets the user point chronicle
+// at a non-default location for ~/.claude (useful if they keep their
+// data on an external drive, for example).
 type ClaudeConfig struct {
 	Enabled bool   `toml:"enabled"`
 	Root    string `toml:"root"`
 }
 
+// CopilotConfig holds the settings for the Copilot adapter. Roots is a
+// list rather than a single path because VS Code, VS Code Insiders,
+// and Cursor each live at their own location and a single chronicle
+// install often wants to read all three. RefuseWhenVSCodeRunning is
+// the safety switch that prevents destructive operations against the
+// state.vscdb file VS Code is actively writing.
 type CopilotConfig struct {
 	Enabled                 bool     `toml:"enabled"`
 	Roots                   []string `toml:"roots"`
 	RefuseWhenVSCodeRunning bool     `toml:"refuse_when_vscode_running"`
 }
 
-// Defaults returns the configuration shipped with a fresh install. Load()
-// merges file values over this baseline, so a config file that sets only
-// one key still produces a fully-formed Config.
+// Defaults returns the configuration that ships with a fresh install.
+// Load merges the file contents over this baseline, so a config file
+// that sets only one key still produces a fully-formed Config and
+// chronicle never has to deal with zero values for fields the user
+// did not mention.
 func Defaults() Config {
 	return Config{
 		Trash: TrashConfig{RetentionDays: 30},
@@ -119,14 +130,15 @@ func Defaults() Config {
 	}
 }
 
-// Load reads the config file at path and returns it merged over
-// Defaults. A missing file is not an error — the caller gets Defaults.
-// A malformed file is an error.
+// Load reads the config file at path and returns the result merged
+// over Defaults. A missing file is not an error: the caller gets the
+// default configuration and chronicle works on first run with no setup.
+// A malformed file is an error, because silently ignoring a typo in
+// the user's own config would be more confusing than failing fast.
 //
-// The "missing file = defaults" rule lets us ship a binary that works on
-// first run without forcing the user to write a config first. The
-// `errors.Is(err, fs.ErrNotExist)` check is the canonical way to ask
-// "did this fail because the file isn't there?" — see concept #3 above.
+// The errors.Is check is the standard Go way to ask "did this fail
+// because the file isn't there?" The check works whether the error is
+// the sentinel value directly or any error that wraps it.
 func Load(path string) (Config, error) {
 	cfg := Defaults()
 	data, err := os.ReadFile(path)

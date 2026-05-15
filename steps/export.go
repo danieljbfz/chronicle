@@ -1,36 +1,5 @@
 package steps
 
-// -----------------------------------------------------------------------
-// Go concepts introduced in this file
-// -----------------------------------------------------------------------
-//
-// 1. `strings.Builder`. The recommended way to build up a string from
-//    many small pieces. Concatenating with `+` allocates a new string
-//    each time — fine for two or three pieces, ruinous for a thousand.
-//    `strings.Builder` accumulates bytes in a growable buffer and
-//    returns the final string with `.String()`. Reset between uses or
-//    just declare a new one — they are cheap.
-//
-// 2. `fmt.Fprintf(w, format, args...)`. The "f" stands for *file* — it
-//    writes formatted text to anything that satisfies `io.Writer`. A
-//    `*strings.Builder` is an io.Writer, an `*os.File` is, a
-//    `bytes.Buffer` is, an HTTP response writer is. This is the same
-//    polymorphism we saw with `fs.FS`: code targets the interface, not
-//    the concrete type.
-//
-//    Note the trio you will see across the standard library:
-//        fmt.Printf(...)     -> writes to os.Stdout
-//        fmt.Fprintf(w, ...) -> writes to the writer you pass
-//        fmt.Sprintf(...)    -> returns a string
-//
-// 3. TYPE SWITCH WITH ASSIGNMENT. Same pattern as in filter.go. The
-//    `switch v := b.(type)` form binds `v` to the concrete value
-//    inside each case, so we can read its fields directly.
-//
-// 4. `for _, line := range strings.Split(s, "\n")` — splitting a string
-//    on newlines and iterating each line. `strings.Split` returns a
-//    `[]string`. The range loop is the standard iteration shape.
-
 import (
 	"fmt"
 	"strings"
@@ -39,16 +8,21 @@ import (
 	"github.com/danieljbfz/chronicle/contracts"
 )
 
-// Markdown renders a Conversation as a human-readable Markdown document.
-// Apply Filter first if you want to omit tools or thinking; Markdown
-// does not filter, it only renders whatever it is given.
+// Markdown renders a Conversation as a human-readable Markdown
+// document. The function does not filter anything: callers that want
+// to omit tools or thinking should call Filter first and then pass
+// the filtered conversation to Markdown. Keeping the two concerns
+// separate means each step has one job and tests for one can stay
+// independent of the other.
 func Markdown(c contracts.Conversation) string {
 	var builder strings.Builder
 
-	// Step 1: front matter (title and metadata block).
+	// Step 1: write the front matter with the title and a one-line
+	// metadata blockquote.
 	writeHeader(&builder, c)
 
-	// Step 2: each message as a section, role-prefixed.
+	// Step 2: write each message as its own section, prefixed with
+	// the role as a level-two heading.
 	for _, m := range c.Messages {
 		writeMessage(&builder, m)
 	}
@@ -56,10 +30,11 @@ func Markdown(c contracts.Conversation) string {
 	return builder.String()
 }
 
-// writeHeader emits a top-level Markdown heading plus a metadata
-// blockquote. The functions below take `*strings.Builder` (a pointer)
-// because they append to it — see the value-vs-pointer-receiver note in
-// contracts/conversation.go.
+// writeHeader emits a top-level Markdown heading and a one-line
+// metadata blockquote underneath. We accept a pointer to the builder
+// because we want every helper in this file to write into the same
+// growing buffer rather than producing strings to glue together
+// afterwards.
 func writeHeader(builder *strings.Builder, c contracts.Conversation) {
 	title := c.Title
 	if title == "" {
@@ -74,9 +49,10 @@ func writeHeader(builder *strings.Builder, c contracts.Conversation) {
 	builder.WriteString("---\n\n")
 }
 
-// writeMessage emits a `## Role` heading and each block in order. The
-// `switch m.Role { ... }` here is an ordinary (non-type) switch — it
-// matches on the string value, not on a concrete type.
+// writeMessage emits one message as a Markdown section. The role
+// becomes a level-two heading, and each block is written by
+// writeBlock in turn. The trailing blank line gives every section a
+// consistent visual gap from the next.
 func writeMessage(builder *strings.Builder, m contracts.Message) {
 	switch m.Role {
 	case contracts.RoleUser:
@@ -94,9 +70,12 @@ func writeMessage(builder *strings.Builder, m contracts.Message) {
 	builder.WriteString("\n")
 }
 
-// writeBlock is a type switch (see concept #3 above). Each case receives
-// the unwrapped concrete block value as `v` and can read its fields
-// directly.
+// writeBlock dispatches on the concrete type of the Block and writes
+// the right Markdown for each one. The switch is the standard Go way
+// to handle this kind of "act differently for each concrete type
+// behind an interface" situation: each case binds the variable v to
+// the unwrapped value, so we can read its fields directly without a
+// second assertion.
 func writeBlock(builder *strings.Builder, b contracts.Block) {
 	switch v := b.(type) {
 	case contracts.TextBlock:
@@ -104,7 +83,9 @@ func writeBlock(builder *strings.Builder, b contracts.Block) {
 		builder.WriteString("\n\n")
 	case contracts.ThinkingBlock:
 		// Render thinking as a Markdown blockquote so it visually
-		// recedes from the actual answer.
+		// recedes from the actual answer. The user can still read
+		// it, but the formatting makes clear that it is a separate
+		// kind of content.
 		builder.WriteString("> _Thinking_\n>\n")
 		for _, line := range strings.Split(v.Text, "\n") {
 			builder.WriteString("> ")
@@ -124,16 +105,19 @@ func writeBlock(builder *strings.Builder, b contracts.Block) {
 	case contracts.ImageBlock:
 		fmt.Fprintf(builder, "_[Image: %s · %s]_\n\n", v.MIME, v.PathOrInlineRef)
 	case contracts.UnknownBlock:
-		// The §6 resilience contract requires we keep unknown content
-		// visible to the user. We label it and dump the raw JSON.
+		// The resilience contract requires us to keep unknown
+		// content visible. We label it clearly and dump the raw JSON
+		// inside a fenced block so the reader can still see what
+		// the upstream tool wrote.
 		fmt.Fprintf(builder, "_Unknown block kind `%s` (preserved as raw JSON below)_\n\n```json\n%s\n```\n\n",
 			v.Kind, string(v.Raw))
 	}
 }
 
-// formatTime returns an RFC 3339 timestamp, or "(unknown)" for the zero
-// value. `time.Time{}.IsZero()` is the standard way to detect "no time
-// set" — the zero value of time.Time is the year-1 epoch.
+// formatTime returns an RFC 3339 timestamp, or the literal string
+// "(unknown)" for the zero value of time.Time. Using the zero value
+// to mean "no time set" is a common Go convention because the
+// language has no nullable types.
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return "(unknown)"

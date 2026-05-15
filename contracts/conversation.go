@@ -1,41 +1,15 @@
 package contracts
 
-// -----------------------------------------------------------------------
-// Go concepts introduced in this file
-// -----------------------------------------------------------------------
-//
-// 1. METHOD RECEIVERS ON STRUCTS. `func (c Conversation) FirstUserPrompt()`
-//    reads as: "this is a method on `Conversation`; inside the body, `c`
-//    refers to the conversation the caller is operating on." Pick a
-//    single-letter receiver tied to the type (`c` for Conversation, `m`
-//    for Message) and stay consistent.
-//
-// 2. VALUE vs POINTER RECEIVERS. `(c Conversation)` is a *value* receiver:
-//    the method sees a copy of the struct and cannot change the original.
-//    A *pointer* receiver `(c *Conversation)` would see the original.
-//    Use value receivers when the method reads but does not mutate; use
-//    pointer receivers for stateful types like `*App` (in composition).
-//
-// 3. THE `for _, x := range slice` LOOP. The standard way to iterate
-//    over a slice. Where Python's `for m in messages` ignores indices
-//    by default, Go's range loop yields both the index and the value,
-//    and you opt out of the index with the blank identifier `_`.
-//    Writing `for _, m := range c.Messages` is the idiomatic shape when
-//    only the value matters.
-//
-// 4. TYPE ASSERTIONS. The expression `b.(TextBlock)` reads as: "I expect
-//    the interface value `b` to actually hold a `TextBlock` at runtime;
-//    extract it." The two-result form `t, ok := b.(TextBlock)` returns
-//    `ok = true` when the assertion succeeds, `ok = false` (no panic)
-//    when `b` holds some other concrete type. This is the standard way
-//    to discriminate between the concrete types behind a Block interface.
-
 import "time"
 
-// Conversation is a normalized session. Adapters produce these by folding
-// their provider-specific records into Message values. Capabilities are
-// copied from the StorageVersion that produced this conversation so the
-// UI does not need to re-query the adapter.
+// Conversation is a normalized session, ready for any layer above
+// contracts to use. Adapters produce these by folding the records they
+// read from disk into ordered Message values, and they copy the
+// Capabilities and Source fields across from the StorageVersion they
+// produced during detection. Carrying the capabilities on the
+// conversation itself is intentional: the renderer can decide whether
+// to show, for example, a thread-tree view by looking at the
+// conversation alone, without having to ask the adapter again.
 type Conversation struct {
 	SessionID    SessionID
 	Project      ProjectID
@@ -47,21 +21,20 @@ type Conversation struct {
 	Source       StorageVersion
 }
 
-// FirstUserPrompt returns the text of the first non-meta user message, or
-// the empty string if no such message exists (an abandoned session).
-//
-// The two filtering rules — "must be from the user" and "must not be a
-// meta record" — together skip the slash-command echoes Claude Code emits
-// when the user runs `/clear` and similar. Without the meta filter, every
-// session would appear to "start" with `<command>/clear</command>`.
+// FirstUserPrompt returns the text of the first real user message in
+// the conversation, or the empty string if no real user message exists.
+// "Real" means two things: the message must come from the user, and it
+// must not be a meta record. The meta filter is what skips the
+// synthetic slash-command echoes that Claude Code writes whenever the
+// user runs commands like /clear inside a session. Without that filter,
+// every Claude session would look like it began with the literal text
+// "<command-name>/clear</command-name>", which is not what any reader
+// wants to see in a transcript.
 func (c Conversation) FirstUserPrompt() string {
 	for _, m := range c.Messages {
 		if m.Role != RoleUser || m.IsMeta {
 			continue
 		}
-		// `b.(TextBlock)` is a type assertion (concept 4 above). It pulls
-		// the concrete value out of the Block interface only if it really
-		// is a TextBlock; otherwise ok is false and we move on.
 		for _, b := range m.Blocks {
 			if t, ok := b.(TextBlock); ok && t.Text != "" {
 				return t.Text
@@ -71,10 +44,13 @@ func (c Conversation) FirstUserPrompt() string {
 	return ""
 }
 
-// IsAbandoned reports whether the session has zero non-meta user prompts.
-// This is the criterion the cleanup feature uses in Plan C — an abandoned
-// session typically holds 18 KB of session-start hooks and zero actual
-// conversation, and is safe to delete.
+// IsAbandoned reports whether the session contains zero real user
+// prompts. The cleanup feature in a later plan uses this check to find
+// the sessions that the user opened by accident, ran a command or two
+// in, and then never returned to. On the contributor's own machine those
+// sessions account for nearly one in five of every session file on
+// disk, with each one taking up around eighteen kilobytes of
+// session-start hooks and zero actual conversation.
 func (c Conversation) IsAbandoned() bool {
 	return c.FirstUserPrompt() == ""
 }

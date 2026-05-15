@@ -8,6 +8,11 @@ import (
 	"github.com/danieljbfz/chronicle/contracts"
 )
 
+// TestMarkdown_includesTitleAndMessages is the happy-path test. A
+// conversation with a user message and an assistant message should
+// produce a document that contains the title (taken from the first
+// user prompt), both role headings, and the session identifier in
+// the metadata blockquote.
 func TestMarkdown_includesTitleAndMessages(t *testing.T) {
 	c := contracts.Conversation{
 		SessionID: "abc-123",
@@ -30,6 +35,11 @@ func TestMarkdown_includesTitleAndMessages(t *testing.T) {
 	}
 }
 
+// TestMarkdown_emptySessionHasFallbackTitle proves the renderer copes
+// with a session that has no real content. An abandoned session is
+// still going to flow through here when the user runs an export
+// against its identifier, and the document should not have an empty
+// title at the top.
 func TestMarkdown_emptySessionHasFallbackTitle(t *testing.T) {
 	out := Markdown(contracts.Conversation{})
 	if !strings.Contains(out, "(empty session)") {
@@ -37,6 +47,11 @@ func TestMarkdown_emptySessionHasFallbackTitle(t *testing.T) {
 	}
 }
 
+// TestMarkdown_preservesUnknownBlock is the canary for the renderer
+// side of the resilience contract: if the parser hands us an
+// UnknownBlock, the renderer must surface both the kind label and
+// the raw JSON. Dropping either one would silently lose information,
+// which is exactly what the contract forbids.
 func TestMarkdown_preservesUnknownBlock(t *testing.T) {
 	c := contracts.Conversation{
 		Messages: []contracts.Message{{
@@ -55,6 +70,10 @@ func TestMarkdown_preservesUnknownBlock(t *testing.T) {
 	}
 }
 
+// TestMarkdown_renderToolBlocks proves the tool-call and tool-result
+// renderings end up as recognisable, navigable Markdown rather than
+// as raw JSON dumps. The strings the test looks for are the same
+// labels a human reader would skim for in the document.
 func TestMarkdown_renderToolBlocks(t *testing.T) {
 	c := contracts.Conversation{
 		Messages: []contracts.Message{{

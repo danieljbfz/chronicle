@@ -6,6 +6,10 @@ import (
 	"testing"
 )
 
+// TestLoad_missingFileReturnsDefaults proves the on-first-run
+// behaviour: chronicle should work without any config file existing
+// at all. The test asks for a path that does not exist and checks
+// that the result matches what Defaults would produce.
 func TestLoad_missingFileReturnsDefaults(t *testing.T) {
 	cfg, err := Load(filepath.Join(t.TempDir(), "nope.toml"))
 	if err != nil {
@@ -19,6 +23,12 @@ func TestLoad_missingFileReturnsDefaults(t *testing.T) {
 	}
 }
 
+// TestLoad_overridesDefaults proves the merge behaviour: a file that
+// only sets some keys still produces a fully-formed Config, with the
+// keys the file mentions taking the file's values and the keys the
+// file does not mention keeping their default values. This matters
+// because chronicle should never force the user to write out the
+// entire schema just to change one option.
 func TestLoad_overridesDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	body := `
@@ -50,6 +60,10 @@ root    = "/some/where"
 	}
 }
 
+// TestLoad_malformedTOMLReturnsError proves we fail loudly on a typo
+// in the user's config file rather than silently falling back to
+// defaults. Falling back silently would hide bugs in the user's own
+// configuration and produce surprising behaviour at runtime.
 func TestLoad_malformedTOMLReturnsError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "broken.toml")
 	if err := os.WriteFile(path, []byte("this is not = valid = toml"), 0o644); err != nil {

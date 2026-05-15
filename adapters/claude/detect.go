@@ -1,50 +1,5 @@
 package claude
 
-// -----------------------------------------------------------------------
-// What this file does
-// -----------------------------------------------------------------------
-//
-// detect.go answers the question "which version of Claude Code's storage
-// are we looking at?" without parsing the entire file. It scans the first
-// ~200 records, collects the (record-type, key-set) tuples it sees, and
-// hashes them into a 12-character fingerprint. If the fingerprint matches
-// one in `knownFingerprints`, we know the version; otherwise we return
-// Version = "unknown" and the rest of the system degrades gracefully.
-//
-// Detection runs once per chronicle process, cached by the Provider type.
-// Reading 200 lines of one session file is essentially free.
-//
-// -----------------------------------------------------------------------
-// Go concepts introduced in this file
-// -----------------------------------------------------------------------
-//
-// 1. `bufio.Scanner`. The standard idiom for reading a file line-by-line.
-//    Python's `for line in open(path):` returns each line including its
-//    trailing newline; Go's Scanner strips it for you. The default buffer
-//    is 64 KB per line — a single 22 MB Claude session has lines longer
-//    than that, so we explicitly raise the buffer with `scanner.Buffer`.
-//
-// 2. `io/fs` and `fs.FS`. The testable-filesystem interface. A function
-//    that takes `root fs.FS` cannot tell whether it is reading the user's
-//    real ~/.claude or an in-memory `fstest.MapFS` set up by a test. This
-//    is the pattern that makes adapter tests cheap and reliable. Compare
-//    Python's `pathlib.Path` (always a real path) versus passing a
-//    file-like object — fs.FS is the latter, lifted to whole filesystems.
-//
-// 3. NAMED RETURN VALUES. The signature
-//        func collectFingerprintInputs(r io.Reader) (inputs []steps.FingerprintInput, parseable bool, err error)
-//    names each return slot. Inside the function, the names act as
-//    pre-declared variables. A bare `return` at the end returns whatever
-//    those variables currently hold. Useful when a function returns three
-//    things and the names communicate intent better than positional
-//    `return foo, bar, baz`.
-//
-// 4. ERROR-WRAPPING via `errors.Is(err, fs.ErrNotExist)`. Same idea as
-//    the config loader: ask whether an error is, or wraps, a sentinel.
-//    When the user has no projects/ directory yet, that is not an
-//    error — Detect should just say "unknown" and let composition skip
-//    this provider gracefully.
-
 import (
 	"bufio"
 	"encoding/json"
@@ -59,52 +14,71 @@ import (
 	"github.com/danieljbfz/chronicle/steps"
 )
 
-const (
-	// adapterName is the string returned by Provider.Name and stamped on
-	// every StorageVersion.Adapter this package produces.
-	adapterName = "claude"
+// adapterName is the string returned by Provider.Name and stamped on
+// every StorageVersion this package produces. We declare it as a
+// constant so any reference to "claude" inside the package goes
+// through a single source of truth and renaming the adapter would be
+// one change.
+const adapterName = "claude"
 
-	// maxFingerprintRecords caps how many records contribute to a
-	// fingerprint. The first records carry the structural variety; reading
-	// a 22 MB JSONL just to fingerprint it would be wasteful.
-	maxFingerprintRecords = 200
+// maxFingerprintRecords caps how many records contribute to a
+// fingerprint. The first records carry every record type the file
+// uses in practice, so reading more would not change the hash.
+// Reading a 22 megabyte session file from end to end just to
+// fingerprint it would be wasteful when the first two hundred lines
+// are already enough.
+const maxFingerprintRecords = 200
 
-	// projectsDir is the subdirectory under the Claude root that holds
-	// per-cwd session folders.
-	projectsDir = "projects"
+// projectsDir is the subdirectory under the Claude root that holds
+// the per-cwd session folders. We declare it as a constant so the
+// detection code and the listing code refer to the same string.
+const projectsDir = "projects"
 
-	// scannerBufferMax raises bufio.Scanner's per-line buffer ceiling.
-	// A single Claude assistant turn with thinking + many tool uses can
-	// exceed the default 64 KB. 16 MB is generous and harmless.
-	scannerBufferMax = 16 * 1024 * 1024
-)
+// scannerBufferMax raises the per-line buffer ceiling for
+// bufio.Scanner. A single Claude assistant turn with thinking and
+// many tool uses can easily exceed bufio.Scanner's default 64 KiB
+// per-line limit, and crashing on a long line would be exactly the
+// wrong kind of failure for a tool whose job is to read other tools'
+// data. Sixteen megabytes is generous and harmless.
+const scannerBufferMax = 16 * 1024 * 1024
 
-// knownFingerprints maps detected fingerprints to internal version codes.
-// New entries land here as the upstream format evolves. When we hit a
-// fingerprint not in this map, we return "unknown" — read-only operations
-// still work via tolerant parsing.
+// knownFingerprints maps detected fingerprints to internal version
+// codes. New entries land in this map as the upstream format evolves.
+// When chronicle sees a fingerprint that is not in this map, it
+// returns Version equal to "unknown" and the rest of the system
+// degrades gracefully: read-only access still works through the
+// tolerant parser, and destructive operations require an extra
+// confirmation.
 //
-// The map is populated empirically: when chronicle first runs against a
-// new Claude Code version, `chronicle doctor` shows the fingerprint we
-// observed. We then add it here in a follow-up commit. Plan A's final
-// task (Task 20) does this for the version on the contributor's machine.
+// The map is populated empirically. The very first time chronicle
+// runs against a new Claude Code version on a contributor's machine,
+// the doctor command prints the fingerprint we observed and we add
+// it here in a follow-up commit.
 var knownFingerprints = map[string]string{
-	// Empty for now. Task 20 adds the first entry.
+	// Empty for now. The final task of this plan adds the first
+	// entry, after running chronicle against the contributor's own
+	// ~/.claude.
 }
 
-// detectInDir computes the fingerprint and version for the first session
-// file found under the directory tree. It is the building block for the
-// Provider.Detect implementation.
+// detectInDir computes the fingerprint and the resulting
+// StorageVersion for the first session file it finds under the given
+// root. It is the building block that the Provider.Detect method
+// wraps, and it is exported only inside the package so tests can call
+// it without going through the Provider.
 //
-// "First session file" is fine: every session in this Claude install was
-// written by the same Claude Code version, so the fingerprint will agree.
-// If we ever need per-session detection, we add it then.
+// We trust the first session file we find, because every session in
+// the same Claude install was written by the same Claude Code
+// version. The fingerprints would all agree, so reading the first one
+// is enough. If a future Claude Code version starts mixing storage
+// formats inside the same install, we would notice during detection
+// and pick a different strategy then.
 func detectInDir(root fs.FS) (contracts.StorageVersion, error) {
 	file, err := firstSessionFile(root)
 	if errors.Is(err, fs.ErrNotExist) {
-		// No projects directory or no session files inside it. This is
-		// not an error — chronicle should still load and the doctor view
-		// will show "no Claude data found here yet."
+		// There is no projects directory or no session files inside
+		// it. This is not an error: chronicle should still load and
+		// the doctor view will simply show "no Claude data found
+		// here yet" for this provider.
 		return contracts.StorageVersion{
 			Adapter: adapterName,
 			Version: "unknown",
@@ -119,9 +93,10 @@ func detectInDir(root fs.FS) (contracts.StorageVersion, error) {
 		return contracts.StorageVersion{}, err
 	}
 	if !parseable {
-		// The file existed but every line failed JSON decoding. That is
-		// the one shape that *is* an error per the resilience contract:
-		// "the file is not parseable as any known format at all."
+		// The file existed but every line failed JSON decoding. The
+		// resilience contract says this is the one shape that does
+		// count as an error, because we are clearly not pointed at a
+		// version of Claude's storage at all.
 		return contracts.StorageVersion{}, errors.New("no parseable JSON records in " + file)
 	}
 
@@ -137,18 +112,22 @@ func detectInDir(root fs.FS) (contracts.StorageVersion, error) {
 		Capabilities: contracts.Capabilities{
 			ThreadTree:      known,
 			ToolInvocations: known,
-			ModelMetadata:   false, // Claude's JSONL does not carry per-turn model id
+			ModelMetadata:   false, // Claude's JSONL does not record per-turn model identifiers.
 		},
 	}, nil
 }
 
-// firstSessionFile walks projects/<*>/<*>.jsonl and returns the path of
-// the first one it finds. Returns fs.ErrNotExist when no session file is
-// present anywhere under the projects directory.
+// firstSessionFile walks the projects directory looking for the
+// first .jsonl file under any subdirectory. It returns fs.ErrNotExist
+// when there is no projects directory at all or when there are no
+// session files anywhere underneath it.
 //
-// We use `path` (not `path/filepath`) because the fs.FS interface
-// always uses forward slashes, regardless of OS. `path/filepath` is for
-// real OS paths — they are different packages by design.
+// We use the path package, not path/filepath, because fs.FS always
+// uses forward slashes regardless of the operating system. The two
+// packages have very similar names but very different jobs:
+// path/filepath is for real OS paths and respects the platform's
+// separator, while path is for slash-separated paths used by URLs and
+// by fs.FS.
 func firstSessionFile(root fs.FS) (string, error) {
 	projects, err := fs.ReadDir(root, projectsDir)
 	if err != nil {
@@ -171,14 +150,12 @@ func firstSessionFile(root fs.FS) (string, error) {
 	return "", fs.ErrNotExist
 }
 
-// readFingerprintInputs streams a JSONL file and returns up to
-// maxFingerprintRecords (type, keys) tuples for the fingerprinter.
-// `parseable` is true once any line decoded as JSON.
-//
-// The function is split out from collectFingerprintInputs so the
-// file-handling part stays trivial (open, defer close, hand the reader
-// to the parser). collectFingerprintInputs has no I/O at all and is the
-// part that matters for tests.
+// readFingerprintInputs opens a JSONL file and returns up to
+// maxFingerprintRecords (type, keys) tuples for the fingerprinter. The
+// parseable boolean becomes true the moment any line decodes
+// successfully as JSON. The function is split out from
+// collectFingerprintInputs so the file-handling part stays trivial:
+// open, defer the close, hand the reader to the parsing helper.
 func readFingerprintInputs(root fs.FS, file string) (inputs []steps.FingerprintInput, parseable bool, err error) {
 	f, err := root.Open(file)
 	if err != nil {
@@ -190,11 +167,12 @@ func readFingerprintInputs(root fs.FS, file string) (inputs []steps.FingerprintI
 }
 
 // collectFingerprintInputs reads JSONL lines from r and produces one
-// FingerprintInput per line, skipping any line that fails JSON decoding
-// (the resilience contract allows this — we never crash on garbage).
-//
-// `parseable` becomes true the first time we successfully decode a line.
-// If it stays false, the caller treats the file as completely opaque.
+// FingerprintInput per line, skipping any line that fails JSON
+// decoding. Skipping the bad lines is deliberate: the resilience
+// contract says we never crash on garbage, and the fingerprint of a
+// file with a few corrupted lines should still match the fingerprint
+// of the same file without them, because the schema-shape data we
+// care about is in the lines that did parse.
 func collectFingerprintInputs(r io.Reader) ([]steps.FingerprintInput, bool, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), scannerBufferMax)
@@ -202,10 +180,11 @@ func collectFingerprintInputs(r io.Reader) ([]steps.FingerprintInput, bool, erro
 	var inputs []steps.FingerprintInput
 	parseable := false
 	for scanner.Scan() && len(inputs) < maxFingerprintRecords {
-		// Decode each line into a generic map[string]json.RawMessage so
-		// we can inspect the keys without committing to a struct shape.
-		// `json.RawMessage` is the standard library's "leave this alone
-		// for now" type — see contracts/block.go.
+		// We decode each line into a map[string]json.RawMessage so we
+		// can read the type field and the set of top-level keys
+		// without committing to a struct shape. json.RawMessage tells
+		// the decoder "leave this value as raw bytes for now" — useful
+		// when we know we will need only some of what is inside.
 		var record map[string]json.RawMessage
 		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
 			continue

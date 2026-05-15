@@ -6,6 +6,11 @@ import (
 	"github.com/danieljbfz/chronicle/contracts"
 )
 
+// sampleConversation is the fixture every test in this file uses. It
+// is built in code rather than loaded from disk because the filter is
+// a pure function and we want the test to stay readable at a glance:
+// the input is right above the assertion, no fixture file in another
+// directory to chase.
 func sampleConversation() contracts.Conversation {
 	return contracts.Conversation{
 		Messages: []contracts.Message{
@@ -38,6 +43,12 @@ func sampleConversation() contracts.Conversation {
 	}
 }
 
+// TestFilter_hideToolsRemovesToolBlocksAndEmptyTurns proves the two
+// related behaviours: tool blocks disappear from the surviving
+// messages, and any turn that contained only tool blocks disappears
+// entirely. The fixture has one such turn, the user's tool_result
+// reply, which exists only to carry the tool output back to the
+// assistant.
 func TestFilter_hideToolsRemovesToolBlocksAndEmptyTurns(t *testing.T) {
 	out := Filter(sampleConversation(), FilterOptions{HideTools: true})
 	if len(out.Messages) != 3 {
@@ -53,6 +64,9 @@ func TestFilter_hideToolsRemovesToolBlocksAndEmptyTurns(t *testing.T) {
 	}
 }
 
+// TestFilter_hideThinkingDropsOnlyThinking proves the thinking flag
+// is independent of the tool flag: turning it on removes the
+// ThinkingBlock entries and leaves everything else intact.
 func TestFilter_hideThinkingDropsOnlyThinking(t *testing.T) {
 	out := Filter(sampleConversation(), FilterOptions{HideThinking: true})
 	for _, m := range out.Messages {
@@ -64,6 +78,9 @@ func TestFilter_hideThinkingDropsOnlyThinking(t *testing.T) {
 	}
 }
 
+// TestFilter_hideMetaDropsMetaMessage proves the meta flag works at
+// the message level, not the block level: a whole message disappears
+// when its IsMeta field is true and HideMeta is on.
 func TestFilter_hideMetaDropsMetaMessage(t *testing.T) {
 	out := Filter(sampleConversation(), FilterOptions{HideMeta: true})
 	for _, m := range out.Messages {
@@ -73,6 +90,11 @@ func TestFilter_hideMetaDropsMetaMessage(t *testing.T) {
 	}
 }
 
+// TestFilter_isPure is the safety net: even with every flag turned
+// on, the input conversation must look exactly the same after the
+// call as it did before. If we ever accidentally mutated the input,
+// callers that filter the same conversation twice would get
+// different results the second time.
 func TestFilter_isPure(t *testing.T) {
 	in := sampleConversation()
 	before := len(in.Messages)

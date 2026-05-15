@@ -1,63 +1,42 @@
 package steps
 
-// -----------------------------------------------------------------------
-// Go concepts introduced in this file
-// -----------------------------------------------------------------------
-//
-// 1. TYPE SWITCH WITH ASSIGNMENT. The construct
-//        switch v := b.(type) {
-//        case TextBlock: ...
-//        case ToolUseBlock: ...
-//        }
-//    reads as: "look at the concrete type behind the interface value
-//    `b`; in each case the variable `v` is bound to the unwrapped
-//    typed value." This is how we discriminate between the block kinds
-//    that all satisfy the Block interface. Type switches are the
-//    primary idiom for working with interface types in Go.
-//
-// 2. ZERO-VALUE STRUCTS AS DEFAULT OPTIONS. The `FilterOptions` struct
-//    below has every field default to false. Callers can write
-//        Filter(c, FilterOptions{})         // keeps everything
-//        Filter(c, FilterOptions{HideTools: true})
-//    No constructor needed; the zero value is meaningful. This is a
-//    common Go pattern that often replaces builder objects in other
-//    languages.
-//
-// 3. SHALLOW COPY OF STRUCTS. `out := c` copies the Conversation by
-//    value: all the scalar fields are independent in `out`, but the
-//    `Messages` slice header still points at the same backing array
-//    as `c.Messages`. That is why we set `out.Messages = nil` and
-//    append fresh messages — without that, mutating `out.Messages`
-//    would also change `c.Messages`. The function is "pure" with
-//    respect to its caller's view: we never mutate the input slice
-//    elements either.
-
 import "github.com/danieljbfz/chronicle/contracts"
 
-// FilterOptions controls which blocks and messages survive a Filter
-// pass. All fields default to false — zero value keeps everything.
+// FilterOptions controls which blocks and which messages survive a
+// Filter call. Every field defaults to false, so the zero value of
+// FilterOptions keeps everything. Callers turn on whichever flags
+// they want: the export command turns on HideTools when the user
+// passed --no-tools at the command line, the user interface turns on
+// HideMeta by default because slash-command echoes are noise, and so
+// on. Building options this way means there is no constructor to
+// remember and no risk of forgetting an argument.
 type FilterOptions struct {
-	HideTools     bool // drop ToolUseBlock and ToolResultBlock
-	HideThinking  bool // drop ThinkingBlock
-	HideMeta      bool // drop messages with IsMeta = true
-	HideSidechain bool // drop messages with IsSidechain = true
+	HideTools     bool
+	HideThinking  bool
+	HideMeta      bool
+	HideSidechain bool
 }
 
 // Filter returns a copy of the conversation with the requested blocks
-// and messages removed. The function is pure: it never mutates the input.
-//
-// Messages that become empty after block filtering are dropped, so a
-// turn that contained only a tool_use disappears entirely when HideTools
-// is set. That's intentional: a tool-call turn with no text is just noise
-// when tool output is hidden.
+// and messages removed. The function is pure: it never mutates the
+// input. Messages that become empty after block filtering are dropped
+// entirely, so a turn that contained only a tool_use disappears when
+// HideTools is on. That behaviour is deliberate, because a tool-call
+// turn with no surviving text is just noise once tool output is
+// hidden.
 func Filter(c contracts.Conversation, opts FilterOptions) contracts.Conversation {
-	// Step 1: shallow copy the conversation; we will replace Messages.
-	// See concept #3 above for why we cannot just mutate `c`.
+	// Step 1: copy the conversation by value, then clear the
+	// Messages slice on the copy so we can rebuild it. Without this
+	// step we would be mutating the caller's input, because Go slices
+	// share their backing arrays after a value copy.
 	out := c
 	out.Messages = nil
 
 	for _, m := range c.Messages {
-		// Step 2: skip whole messages when the opt-out matches.
+		// Step 2: drop whole messages whose top-level flags match a
+		// hide-flag the caller turned on. We do this before looking
+		// at the blocks because there is no reason to inspect a
+		// message we already know we will not keep.
 		if opts.HideMeta && m.IsMeta {
 			continue
 		}
@@ -65,9 +44,11 @@ func Filter(c contracts.Conversation, opts FilterOptions) contracts.Conversation
 			continue
 		}
 
-		// Step 3: filter blocks within the message.
-		// `b.(contracts.ToolUseBlock)` is a type assertion — see
-		// contracts/conversation.go for the explanation.
+		// Step 3: walk the blocks and keep only those the caller
+		// allowed. The type assertion at each check is the standard
+		// Go idiom for "is this Block actually one of these concrete
+		// types?" — the second return value is true when it is and
+		// false when it is not.
 		blocks := make([]contracts.Block, 0, len(m.Blocks))
 		for _, b := range m.Blocks {
 			if opts.HideTools {
@@ -86,7 +67,9 @@ func Filter(c contracts.Conversation, opts FilterOptions) contracts.Conversation
 			blocks = append(blocks, b)
 		}
 
-		// Step 4: drop the message if no blocks remain.
+		// Step 4: drop the entire message when no blocks survived
+		// the filter. Otherwise, attach the surviving blocks and
+		// keep the message.
 		if len(blocks) == 0 {
 			continue
 		}

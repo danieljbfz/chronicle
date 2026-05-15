@@ -1,22 +1,5 @@
 package steps
 
-// -----------------------------------------------------------------------
-// Go concepts introduced in this file
-// -----------------------------------------------------------------------
-//
-// 1. `bytes.Buffer` AS AN io.Writer. `bytes.Buffer` is a growable
-//    in-memory byte buffer. It satisfies `io.Writer` (it has a `Write`
-//    method), so we can pass `&buf` anywhere an io.Writer is expected
-//    and then read back what was written via `buf.String()` or
-//    `buf.Bytes()`. This is the standard "fake stdout" technique in
-//    Go tests, similar to passing an `io.StringIO()` to a function in
-//    Python that takes a file-like object.
-//
-// 2. SUBTESTS via `t.Run(name, func(t *testing.T) { ... })`. Equivalent
-//    to `pytest`'s `@pytest.mark.parametrize` or its own test functions:
-//    each subtest gets its own pass/fail line in the output, and you
-//    can run a single subtest with `go test -run TestX/subname`.
-
 import (
 	"bytes"
 	"encoding/base64"
@@ -24,6 +7,11 @@ import (
 	"testing"
 )
 
+// TestOSC52Sequence_shape pulls the produced sequence apart and
+// checks each piece is right: the ESC and OSC introducer at the
+// start, the BEL terminator at the end, and the payload between them
+// that decodes back to the original text. If any of these checks
+// fail, the bytes we emit are not OSC 52 anymore.
 func TestOSC52Sequence_shape(t *testing.T) {
 	seq := OSC52Sequence("hello")
 	if !strings.HasPrefix(seq, "\x1b]52;c;") {
@@ -42,6 +30,12 @@ func TestOSC52Sequence_shape(t *testing.T) {
 	}
 }
 
+// TestOSC52Sequence_handlesUnicodeAndNewlines confirms the round trip
+// through base64 preserves multi-byte characters and embedded
+// newlines, neither of which would survive a naive byte-by-byte
+// transmission. The test uses table-driven subtests, which is the
+// idiomatic Go way to run the same assertion over a list of inputs
+// and get a separate pass-or-fail line in the output for each one.
 func TestOSC52Sequence_handlesUnicodeAndNewlines(t *testing.T) {
 	cases := []struct {
 		name string
@@ -67,6 +61,10 @@ func TestOSC52Sequence_handlesUnicodeAndNewlines(t *testing.T) {
 	}
 }
 
+// TestCopyOSC52_writesToWriter is a smoke test that proves the
+// io.Writer plumbing actually writes something. The shape checks in
+// TestOSC52Sequence_shape cover the content; this test only verifies
+// that nothing was lost between the helper and the writer.
 func TestCopyOSC52_writesToWriter(t *testing.T) {
 	var buf bytes.Buffer
 	if err := CopyOSC52(&buf, "abc"); err != nil {

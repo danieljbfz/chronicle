@@ -1,9 +1,11 @@
-// Package claude implements the Provider contract for Claude Code's
-// on-disk storage at ~/.claude.
+// Package claude is the chronicle adapter for Claude Code's on-disk
+// storage at ~/.claude. The job of an adapter is to translate the
+// messy files one specific tool writes to disk into the clean,
+// shared types defined in the contracts package, so the rest of
+// chronicle can render and operate on conversations without ever
+// having to know how Claude Code's storage is laid out.
 //
-// -----------------------------------------------------------------------
-// What lives in ~/.claude
-// -----------------------------------------------------------------------
+// The directory layout under ~/.claude is roughly the following:
 //
 //	projects/<encoded-cwd>/<sessionId>.jsonl    one file per session
 //	file-history/<sessionId>/...                versioned file backups
@@ -12,35 +14,24 @@
 //	sessions/<sessionId>.json                   small metadata
 //	history.jsonl                               global prompt history
 //
-// Each session JSONL is a newline-delimited stream of typed records.
-// JSONL just means "one JSON object per line" — easy to append to and
-// to read incrementally. Python equivalent: `for line in open(path):
-// obj = json.loads(line)`.
+// Each session file is JSONL, which means one JSON object per line.
+// JSONL is a very common log format because it is trivially
+// appendable and trivially streamable: a writer adds lines at the end
+// and a reader consumes them one at a time without ever having to
+// parse the whole file. Claude Code uses it for exactly that reason.
 //
-// The parser folds the records into a parent-pointer tree via parentUuid
-// and produces a normalized contracts.Conversation. The tree shape lets a
-// single ".jsonl" file represent a resumed session with multiple branches —
-// useful for the future "show me the tree" feature, ignored for v1's flat
-// rendering.
+// The parser folds the records into a parent-pointer tree by way of
+// each record's parentUuid field. The tree shape lets a single .jsonl
+// file represent a session that was resumed and then branched, which
+// the user interface will be able to render as a tree in a future
+// plan. For the version-one chronicle, the tree gets flattened to a
+// chronological list, but the data is already there for later.
 //
-// -----------------------------------------------------------------------
-// What this package implements right now
-// -----------------------------------------------------------------------
-//
-// Plan A is read-only. Detect, ListProjects, ListSessions, and
-// ReadSession do real work; PlanDelete and PlanOrphanScan return
-// ErrNotImplemented and Plan C wires them up. That split keeps the early
-// commits safe — there is no code path that can delete a file until we
-// have built the cascade-delete map and the trash subsystem.
-//
-// -----------------------------------------------------------------------
-// The doc.go convention
-// -----------------------------------------------------------------------
-//
-// Go tools surface the comment immediately above `package <name>` in any
-// file as the package's documentation. When the comment is long, the
-// convention is to put it in a dedicated file named doc.go that contains
-// nothing else. That keeps the comment easy to find and avoids tying
-// the documentation lifetime to any one feature file. Python's closest
-// analog is the module-level docstring at the top of __init__.py.
+// What this package implements right now is read-only. Detect,
+// ListProjects, ListSessions, and ReadSession all do real work. The
+// PlanDelete and PlanOrphanScan methods return ErrNotImplemented for
+// now and the cleanup plan in a later phase wires them up. The split
+// is deliberate: the early commits cannot accidentally delete
+// anything, because the destructive code paths simply do not exist
+// yet.
 package claude
