@@ -46,7 +46,7 @@ func sampleStats() composition.Stats {
 // the three sections is caught individually.
 func TestWriteStatsText_includesTotalsByProviderAndTopProjects(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeStatsText(&buf, sampleStats()); err != nil {
+	if err := writeStatsText(&buf, sampleStats(), false); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -82,11 +82,46 @@ func TestWriteStatsText_skipsActiveLineWhenRangeMissing(t *testing.T) {
 	stats.Total.NewestAt = time.Time{}
 
 	var buf bytes.Buffer
-	if err := writeStatsText(&buf, stats); err != nil {
+	if err := writeStatsText(&buf, stats, false); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(buf.String(), "Active:") {
 		t.Errorf("output should omit the Active line when no range, got:\n%s", buf.String())
+	}
+}
+
+// TestWriteStatsText_includesByModelSectionOnlyWhenAsked
+// pins the contract that the by-model flag controls
+// whether the section appears in the text output, even when
+// the underlying Stats value carries ByModel rows.
+func TestWriteStatsText_includesByModelSectionOnlyWhenAsked(t *testing.T) {
+	stats := sampleStats()
+	stats.ByModel = []composition.ModelStats{
+		{Model: "claude-sonnet-4-6", Aggregate: composition.Aggregate{Sessions: 90, Messages: 9000, SizeBytes: 3 * 1024 * 1024}},
+		{Model: "", Aggregate: composition.Aggregate{Sessions: 10, Messages: 100, SizeBytes: 100 * 1024}},
+	}
+
+	var hidden bytes.Buffer
+	if err := writeStatsText(&hidden, stats, false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(hidden.String(), "By model") {
+		t.Errorf("by-model section must not appear without the flag, got:\n%s", hidden.String())
+	}
+
+	var shown bytes.Buffer
+	if err := writeStatsText(&shown, stats, true); err != nil {
+		t.Fatal(err)
+	}
+	out := shown.String()
+	for _, want := range []string{
+		"By model",
+		"claude-sonnet-4-6: 90 sessions",
+		"(unknown): 10 sessions",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in by-model output:\n%s", want, out)
+		}
 	}
 }
 
@@ -123,7 +158,7 @@ func TestDateRange_formatsSpanInDays(t *testing.T) {
 // fields rather than fragile substring checks.
 func TestWriteStatsJSON_emitsOneIndentedDocument(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeStatsJSON(&buf, sampleStats()); err != nil {
+	if err := writeStatsJSON(&buf, sampleStats(), false); err != nil {
 		t.Fatal(err)
 	}
 

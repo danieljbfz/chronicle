@@ -93,16 +93,35 @@ type ProjectStats struct {
 	Aggregate   Aggregate
 }
 
+// ModelStats is one row of the by-model breakdown. The Model
+// identifier is the string each adapter pulled from its
+// native session metadata (the most-frequent per-message
+// value for Claude, the single session-level selection for
+// the Copilot adapters). Sessions whose adapter did not
+// record a model value at all are grouped under the empty
+// string, and the CLI renders that bucket as "(unknown)".
+type ModelStats struct {
+	Model     string
+	Aggregate Aggregate
+}
+
 // Stats is the full result of one App.Stats call. The shape
 // is meant to be rendered directly by the CLI and to round-
 // trip through JSON without losing fidelity, so every field
 // on Stats and on the embedded Aggregates carries its own
 // JSON tag.
+//
+// ByModel is the per-model breakdown computed across every
+// session that contributed to the totals. Stats always
+// produces this slice, because computing it costs one map
+// lookup per session and the CLI decides per command whether
+// to render it.
 type Stats struct {
 	GeneratedAt time.Time
 	Total       Aggregate
 	Providers   []ProviderStats
 	TopProjects []ProjectStats
+	ByModel     []ModelStats
 }
 
 // Stats walks every detected provider and returns a one-shot
@@ -129,12 +148,13 @@ func (a *App) Stats(opts StatsOptions) (Stats, error) {
 
 	out := Stats{GeneratedAt: time.Now().UTC()}
 	var allProjects []ProjectStats
+	byModel := map[string]*Aggregate{}
 
 	for _, p := range a.providers {
 		if opts.Provider != "" && p.Provider.Name() != opts.Provider {
 			continue
 		}
-		ps, projects, err := statsForProvider(p)
+		ps, projects, perModel, err := statsForProvider(p)
 		if err != nil {
 			return Stats{}, err
 		}
@@ -144,10 +164,54 @@ func (a *App) Stats(opts StatsOptions) (Stats, error) {
 		out.Total.SizeBytes += ps.Aggregate.SizeBytes
 		mergeRange(&out.Total, ps.Aggregate)
 		allProjects = append(allProjects, projects...)
+		mergeByModel(byModel, perModel)
 	}
 
 	out.TopProjects = topProjects(allProjects, topN)
+	out.ByModel = sortedModelStats(byModel)
 	return out, nil
+}
+
+// mergeByModel folds one provider's per-model aggregates into
+// the running totals. We accept the same shape on both sides
+// (a model-keyed map of Aggregate pointers) so the per-
+// provider walks can build their own map and hand it back
+// without the parent caring how it was assembled.
+func mergeByModel(into map[string]*Aggregate, from map[string]*Aggregate) {
+	for model, agg := range from {
+		current, ok := into[model]
+		if !ok {
+			current = &Aggregate{}
+			into[model] = current
+		}
+		current.Sessions += agg.Sessions
+		current.Messages += agg.Messages
+		current.SizeBytes += agg.SizeBytes
+		mergeRange(current, *agg)
+	}
+}
+
+// sortedModelStats turns the model-keyed map into the slice
+// shape callers consume. The slice is sorted by session count
+// descending and then by model name ascending, so the most
+// active model leads the list and ties resolve
+// deterministically. The renderer can take the result and
+// print it without re-sorting.
+func sortedModelStats(byModel map[string]*Aggregate) []ModelStats {
+	if len(byModel) == 0 {
+		return nil
+	}
+	rows := make([]ModelStats, 0, len(byModel))
+	for model, agg := range byModel {
+		rows = append(rows, ModelStats{Model: model, Aggregate: *agg})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Aggregate.Sessions != rows[j].Aggregate.Sessions {
+			return rows[i].Aggregate.Sessions > rows[j].Aggregate.Sessions
+		}
+		return rows[i].Model < rows[j].Model
+	})
+	return rows
 }
 
 // statsForProvider walks one provider's projects and sessions
@@ -160,22 +224,23 @@ func (a *App) Stats(opts StatsOptions) (Stats, error) {
 // project slice when the provider's root directory does not
 // exist, mirroring the same fs.ErrNotExist tolerance the
 // other composition methods apply.
-func statsForProvider(p *providerEntry) (ProviderStats, []ProjectStats, error) {
+func statsForProvider(p *providerEntry) (ProviderStats, []ProjectStats, map[string]*Aggregate, error) {
 	ps := ProviderStats{Name: p.Provider.Name()}
+	byModel := map[string]*Aggregate{}
 
 	projects, err := p.Provider.ListProjects(p.FS)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return ps, nil, nil
+			return ps, nil, byModel, nil
 		}
-		return ProviderStats{}, nil, err
+		return ProviderStats{}, nil, nil, err
 	}
 
 	rows := make([]ProjectStats, 0, len(projects))
 	for _, project := range projects {
 		summaries, err := p.Provider.ListSessions(p.FS, project.ID)
 		if err != nil {
-			return ProviderStats{}, nil, err
+			return ProviderStats{}, nil, nil, err
 		}
 		if len(summaries) == 0 {
 			// An empty project still counts toward the
@@ -195,12 +260,18 @@ func statsForProvider(p *providerEntry) (ProviderStats, []ProjectStats, error) {
 		for _, s := range summaries {
 			row.Aggregate.add(s)
 			ps.Aggregate.add(s)
+			modelAgg, ok := byModel[s.Model]
+			if !ok {
+				modelAgg = &Aggregate{}
+				byModel[s.Model] = modelAgg
+			}
+			modelAgg.add(s)
 		}
 		ps.Projects++
 		rows = append(rows, row)
 	}
 
-	return ps, rows, nil
+	return ps, rows, byModel, nil
 }
 
 // mergeRange folds the OldestAt/NewestAt of one aggregate

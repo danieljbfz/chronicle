@@ -26,6 +26,7 @@ func newStatsCmd() *cobra.Command {
 	var providerFlag string
 	var topN int
 	var asJSON bool
+	var byModel bool
 
 	cmd := &cobra.Command{
 		Use:   "stats",
@@ -43,14 +44,15 @@ func newStatsCmd() *cobra.Command {
 				return fail("stats: %v", err)
 			}
 			if asJSON {
-				return writeStatsJSON(cmd.OutOrStdout(), stats)
+				return writeStatsJSON(cmd.OutOrStdout(), stats, byModel)
 			}
-			return writeStatsText(cmd.OutOrStdout(), stats)
+			return writeStatsText(cmd.OutOrStdout(), stats, byModel)
 		},
 	}
 	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider by name (see chronicle doctor for the list)`)
 	cmd.Flags().IntVar(&topN, "top", 0, "Number of top projects to show (0 uses the default)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit results as JSON instead of text")
+	cmd.Flags().BoolVar(&byModel, "by-model", false, "Include a breakdown of sessions and messages by model identifier")
 	return cmd
 }
 
@@ -61,7 +63,7 @@ func newStatsCmd() *cobra.Command {
 // the totals block. We use absolute dates rather than
 // relative ones in the active-range line because the user
 // often wants to know the actual start of their history.
-func writeStatsText(w io.Writer, stats composition.Stats) error {
+func writeStatsText(w io.Writer, stats composition.Stats, byModel bool) error {
 	fmt.Fprintln(w, "Totals")
 	fmt.Fprintf(w, "  Sessions: %s\n", composition.HumanInt(stats.Total.Sessions))
 	fmt.Fprintf(w, "  Messages: %s\n", composition.HumanInt(stats.Total.Messages))
@@ -83,6 +85,25 @@ func writeStatsText(w io.Writer, stats composition.Stats) error {
 				composition.HumanBytes(p.Aggregate.SizeBytes),
 				p.Projects,
 				composition.Pluralize(p.Projects, "project", "projects"),
+			)
+		}
+		fmt.Fprintln(w)
+	}
+
+	if byModel && len(stats.ByModel) > 0 {
+		fmt.Fprintln(w, "By model")
+		for _, m := range stats.ByModel {
+			name := m.Model
+			if name == "" {
+				name = "(unknown)"
+			}
+			fmt.Fprintf(w, "  %s: %s %s, %s %s, %s\n",
+				name,
+				composition.HumanInt(m.Aggregate.Sessions),
+				composition.Pluralize(m.Aggregate.Sessions, "session", "sessions"),
+				composition.HumanInt(m.Aggregate.Messages),
+				composition.Pluralize(m.Aggregate.Messages, "message", "messages"),
+				composition.HumanBytes(m.Aggregate.SizeBytes),
 			)
 		}
 		fmt.Fprintln(w)
@@ -141,6 +162,12 @@ type statsJSON struct {
 	Total       aggregateJSON      `json:"total"`
 	Providers   []providerStatJSON `json:"providers"`
 	TopProjects []projectStatJSON  `json:"top_projects"`
+	ByModel     []modelStatJSON    `json:"by_model,omitempty"`
+}
+
+type modelStatJSON struct {
+	Model     string        `json:"model"`
+	Aggregate aggregateJSON `json:"aggregate"`
 }
 
 type aggregateJSON struct {
@@ -170,7 +197,7 @@ type projectStatJSON struct {
 // a single document, and that document is small enough that
 // a human reading it without piping through jq still wants
 // the indentation.
-func writeStatsJSON(w io.Writer, stats composition.Stats) error {
+func writeStatsJSON(w io.Writer, stats composition.Stats, byModel bool) error {
 	out := statsJSON{
 		GeneratedAt: stats.GeneratedAt.Format(time.RFC3339),
 		Total:       toAggregateJSON(stats.Total),
@@ -190,6 +217,19 @@ func writeStatsJSON(w io.Writer, stats composition.Stats) error {
 			Path:        proj.Path,
 			Aggregate:   toAggregateJSON(proj.Aggregate),
 		})
+	}
+	// The by-model breakdown only lands in the JSON envelope
+	// when the caller asked for it. Stats always computes the
+	// data, but most --json consumers do not want the extra
+	// rows, and the omitempty tag keeps the existing wire
+	// shape unchanged for those callers.
+	if byModel {
+		for _, m := range stats.ByModel {
+			out.ByModel = append(out.ByModel, modelStatJSON{
+				Model:     m.Model,
+				Aggregate: toAggregateJSON(m.Aggregate),
+			})
+		}
 	}
 
 	encoder := json.NewEncoder(w)
