@@ -1,0 +1,48 @@
+# Configuration for golangci-lint, the Go meta-linter.
+# Run with `make lint`. CI runs the same command.
+#
+# Linter selection rationale:
+#   We enable the standard "code quality" linters and a handful of
+#   correctness-focused ones. We do not enable everything available,
+#   because some linters are noisy or stylistic. The goal is to catch
+#   real bugs and maintain consistent style without burying signal in
+#   subjective opinions.
+
+run:
+  timeout: 2m
+
+linters:
+  disable-all: true
+  enable:
+    # Default Go correctness checks. Catches things like unused
+    # variables, dead code, and Printf format mismatches.
+    - errcheck         # Confirms returned errors are checked.
+    - govet            # The standard `go vet` checks.
+    - ineffassign      # Flags assignments that are never read.
+    - staticcheck      # The most thorough Go static analyzer.
+    - unused           # Flags unused functions, types, and constants.
+    # Style enforcement.
+    - gofmt            # Confirms files match `gofmt -s` output.
+    - goimports        # Confirms import groups are sorted correctly.
+    - misspell         # Catches common English misspellings in comments.
+    # Defensive correctness.
+    - bodyclose        # HTTP response bodies must be closed.
+    - rowserrcheck     # database/sql Rows.Err() must be checked.
+    - sqlclosecheck    # database/sql Rows and Stmt must be closed.
+
+linters-settings:
+  errcheck:
+    # The decodeOrZero helper in adapters/claude/parse.go intentionally
+    # discards the json.Unmarshal error, and the chronicle resilience
+    # contract makes that the right choice. We do not want errcheck to
+    # fight us about it. Other deliberate ignores (defer f.Close() in
+    # read paths) are the standard Go pattern.
+    exclude-functions:
+      - (io.Closer).Close
+      - encoding/json.Unmarshal
+
+issues:
+  # Show every issue, not just the first per file. We want a complete
+  # picture when we run lint locally.
+  max-issues-per-linter: 0
+  max-same-issues: 0

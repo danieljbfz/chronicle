@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/danieljbfz/chronicle/contracts"
@@ -183,7 +184,7 @@ func collectFingerprintInputs(r io.Reader) ([]steps.FingerprintInput, bool, erro
 		// We label the kind with a string prefix so the fingerprint
 		// is easy to recognize when a human looks at it. "kind:0"
 		// is the snapshot, "kind:1" is set, "kind:2" is append.
-		typeLabel := "kind:" + itoa(event.Kind)
+		typeLabel := "kind:" + strconv.Itoa(event.Kind)
 
 		var keys []string
 		if event.Kind == snapshotEventKind {
@@ -208,25 +209,4 @@ func topLevelKeys(raw json.RawMessage) []string {
 		keys = append(keys, k)
 	}
 	return keys
-}
-
-// itoa is a tiny strconv.Itoa replacement that avoids the import
-// for a one-call use. It returns the decimal representation of n.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	negative := n < 0
-	if negative {
-		n = -n
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	if negative {
-		return "-" + string(digits)
-	}
-	return string(digits)
 }

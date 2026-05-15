@@ -3,7 +3,6 @@ package copilot
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"strconv"
 	"time"
@@ -371,16 +370,4 @@ func nestedMap(m map[string]any, key string) map[string]any {
 	}
 	v, _ := m[key].(map[string]any)
 	return v
-}
-
-// readAllSnapshot is a small convenience used by tests that want
-// to feed a snapshot through replay without going through the file
-// system. The implementation reads everything from the reader,
-// passes it to replay, and returns the reconstructed state.
-func readAllSnapshot(r io.Reader) (map[string]any, error) {
-	result, err := replay(r)
-	if err != nil {
-		return nil, err
-	}
-	return result.State, nil
 }

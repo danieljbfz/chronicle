@@ -19,8 +19,11 @@ import (
 
 // version is the chronicle version string. We bump it by hand for
 // now and can switch to a build-time injected version once we
-// have a release process.
-var version = "0.1.0-plan-a"
+// have a release process. The standard Go pattern is to declare
+// `var version = "dev"` here and override it at build time with
+// `go build -ldflags "-X main.version=1.2.3"`, which is exactly
+// what we will do once the first release goes out.
+var version = "0.1.0"
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {

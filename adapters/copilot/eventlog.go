@@ -2,7 +2,6 @@ package copilot
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 )
 
@@ -261,15 +260,4 @@ func snapshotAt(state map[string]any, keys []string) any {
 		cur = m[key]
 	}
 	return cur
-}
-
-// summarize returns a short human-readable description of the
-// replay result. The doctor view uses this when it wants to
-// surface unknown event kinds to the user without dumping the
-// entire integer slice.
-func (r replayResult) summarize() string {
-	if len(r.UnknownKinds) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("Saw %d unknown event kind(s) during replay: %v", len(r.UnknownKinds), r.UnknownKinds)
 }

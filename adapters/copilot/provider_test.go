@@ -38,7 +38,7 @@ func buildFS(t *testing.T) fstest.MapFS {
 			Data: []byte(`{"folder":"file:///Users/test/proj-b"}`),
 		},
 		"workspaceStorage/def456/chatSessions/small-session-1-other.jsonl": &fstest.MapFile{Data: small},
-		"globalStorage/emptyWindowChatSessions/lonely-session.jsonl":      &fstest.MapFile{Data: small},
+		"globalStorage/emptyWindowChatSessions/lonely-session.jsonl":       &fstest.MapFile{Data: small},
 	}
 }
 

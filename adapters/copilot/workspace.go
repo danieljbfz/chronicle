@@ -95,7 +95,14 @@ func projectDisplayName(absPath string) string {
 // identifiers we use for the bucket of chat sessions that VS Code
 // records when no folder was open. The user sees these grouped
 // under one "no workspace" pseudo-project in the listing.
+//
+// We use "no-workspace" as the ID rather than something like
+// "__empty_window__" because the ID is part of chronicle's public
+// surface. Users will see it printed in the list output's
+// project_id JSON field, and they may pass it back to the export
+// command. Internal-looking strings with double-underscore would
+// look like a leaked debug placeholder.
 const (
-	emptyWindowProjectID    = "__empty_window__"
-	emptyWindowDisplayName  = "(no workspace)"
+	emptyWindowProjectID   = "no-workspace"
+	emptyWindowDisplayName = "(no workspace)"
 )

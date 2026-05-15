@@ -143,6 +143,23 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 	}, nil
 }
 
+// decodeOrZero unmarshals raw into out and silently swallows any
+// error. We use it in places where the resilience contract says
+// "give the renderer the best block you can produce, even from
+// half-broken JSON". A failed decode leaves out at its zero value,
+// which is a usable empty block, and the caller keeps going.
+//
+// The function exists as a named helper instead of a bare
+// `_ = json.Unmarshal(...)` for two reasons. First, it makes the
+// intent visible at every call site: the reader sees decodeOrZero
+// and knows we are choosing tolerance over strictness here.
+// Second, it gives us one place to add diagnostics later (a debug
+// counter, a structured log, an opt-in strict mode) without
+// hunting through the file for ignore patterns.
+func decodeOrZero(raw json.RawMessage, out any) {
+	_ = json.Unmarshal(raw, out)
+}
+
 // rawRecord holds the small set of fields we read straight from
 // every JSONL line. The message body itself stays as raw JSON in
 // the Message field, because the right shape to decode it into
@@ -195,7 +212,7 @@ type assistantBody struct {
 // two shapes Claude uses for user content.
 func parseUserRecord(record rawRecord, ts time.Time) contracts.Message {
 	var body userBody
-	_ = json.Unmarshal(record.Message, &body)
+	decodeOrZero(record.Message, &body)
 
 	blocks := decodeUserContent(body.Content)
 	return contracts.Message{
@@ -215,7 +232,7 @@ func parseUserRecord(record rawRecord, ts time.Time) contracts.Message {
 // without the shape check that decodeUserContent has to do.
 func parseAssistantRecord(record rawRecord, ts time.Time) contracts.Message {
 	var body assistantBody
-	_ = json.Unmarshal(record.Message, &body)
+	decodeOrZero(record.Message, &body)
 
 	blocks := decodeAssistantContent(body.Content)
 	return contracts.Message{
@@ -302,13 +319,13 @@ func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 		var v struct {
 			Text string `json:"text"`
 		}
-		_ = json.Unmarshal(raw, &v)
+		decodeOrZero(raw, &v)
 		return contracts.TextBlock{Text: v.Text}, true
 	case "thinking":
 		var v struct {
 			Thinking string `json:"thinking"`
 		}
-		_ = json.Unmarshal(raw, &v)
+		decodeOrZero(raw, &v)
 		return contracts.ThinkingBlock{Text: v.Thinking}, true
 	case "tool_use":
 		var v struct {
@@ -316,7 +333,7 @@ func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 			Name  string          `json:"name"`
 			Input json.RawMessage `json:"input"`
 		}
-		_ = json.Unmarshal(raw, &v)
+		decodeOrZero(raw, &v)
 		return contracts.ToolUseBlock{Tool: v.Name, Input: v.Input, CallID: v.ID}, true
 	case "tool_result":
 		var v struct {
@@ -324,7 +341,7 @@ func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 			Content   json.RawMessage `json:"content"`
 			IsError   bool            `json:"is_error"`
 		}
-		_ = json.Unmarshal(raw, &v)
+		decodeOrZero(raw, &v)
 		return contracts.ToolResultBlock{
 			CallID:  v.ToolUseID,
 			Output:  flattenToolResultContent(v.Content),
@@ -338,7 +355,7 @@ func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 				Data      string `json:"data"`
 			} `json:"source"`
 		}
-		_ = json.Unmarshal(raw, &v)
+		decodeOrZero(raw, &v)
 		ref := v.Source.Type
 		if v.Source.Data != "" {
 			ref = fmt.Sprintf("base64:%d bytes", len(v.Source.Data))
@@ -363,7 +380,7 @@ func flattenToolResultContent(raw json.RawMessage) string {
 	}
 	if raw[0] == '"' {
 		var s string
-		_ = json.Unmarshal(raw, &s)
+		decodeOrZero(raw, &s)
 		return s
 	}
 	var parts []struct {
