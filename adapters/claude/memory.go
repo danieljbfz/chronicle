@@ -6,57 +6,39 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/danieljbfz/chronicle/contracts"
 )
 
-// MemoryEntry describes one memory file inside a project's
-// per-project memory directory. Claude writes these markdown
-// files at `projects/<encoded-cwd>/memory/<name>.md` and loads
-// them at session start to remember things across sessions.
+// Claude implements the contracts.MemoryStore optional
+// capability. Per-project memory lives at
+// `projects/<encoded-cwd>/memory/<name>.md`. Claude writes
+// these markdown files automatically when auto-memory is on
+// and loads them at session start to remember things across
+// sessions. MEMORY.md is the index file. Other files like
+// architecture.md or debugging.md load on demand based on
+// the conversation.
 //
-// MEMORY.md is the index file. It always loads first (the first
-// 200 lines or 25 KB get pulled into context at every session
-// start). Other files like architecture.md or debugging.md load
-// on demand based on the conversation.
-type MemoryEntry struct {
-	// Project is the encoded-cwd identifier of the project the
-	// memory belongs to. Same value every other Claude method
-	// uses for project IDs, so callers can pass it around.
-	Project contracts.ProjectID
+// The MemoryStore methods below let chronicle's CLI list,
+// show, edit, and delete these files without anyone outside
+// the adapter needing to know how Claude stores them on disk.
 
-	// FileName is the filename inside the memory directory,
-	// like "MEMORY.md" or "architecture.md". The index file is
-	// always called MEMORY.md.
-	FileName string
-
-	// SizeBytes is the file's on-disk size. Helps the user see
-	// at a glance which files are heaviest.
-	SizeBytes int64
-
-	// ModifiedAt is the last-modified time. A memory file that
-	// has not changed in months is a strong candidate for the
-	// "this is stale, prune it" workflow.
-	ModifiedAt time.Time
-}
-
-// ListMemoryFiles returns every memory file in every project
-// that has a memory directory. Projects without a memory
-// directory are simply absent from the result. The slice is
-// sorted by project name and then by filename, so MEMORY.md
-// appears first inside each project (alphabetical sort puts
-// uppercase before lowercase).
-func (p *Provider) ListMemoryFiles(root fs.FS) ([]MemoryEntry, error) {
+// ListMemories returns every memory file in every project
+// that has a memory directory. Projects without one are
+// simply absent from the result. The slice is sorted by
+// project name and then by filename, so MEMORY.md appears
+// first inside each project (uppercase sorts before lowercase
+// in alphabetical order).
+func (p *Provider) ListMemories(root fs.FS) ([]contracts.MemoryFile, error) {
 	projects, err := fs.ReadDir(root, projectsDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, newError("list memory files", projectsDir, err)
+		return nil, newError("list memories", projectsDir, err)
 	}
 
-	var entries []MemoryEntry
+	var entries []contracts.MemoryFile
 	for _, proj := range projects {
 		if !proj.IsDir() {
 			continue
@@ -81,7 +63,7 @@ func (p *Provider) ListMemoryFiles(root fs.FS) ([]MemoryEntry, error) {
 // slice (not an error) when the project has no memory
 // directory at all, because that just means the user has
 // never enabled auto-memory for that project.
-func readMemoryDir(root fs.FS, projectName string) ([]MemoryEntry, error) {
+func readMemoryDir(root fs.FS, projectName string) ([]contracts.MemoryFile, error) {
 	dir := path.Join(projectsDir, projectName, memoryDir)
 	entries, err := fs.ReadDir(root, dir)
 	if err != nil {
@@ -91,7 +73,7 @@ func readMemoryDir(root fs.FS, projectName string) ([]MemoryEntry, error) {
 		return nil, newError("read memory dir", dir, err)
 	}
 
-	var out []MemoryEntry
+	var out []contracts.MemoryFile
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 			continue
@@ -100,7 +82,7 @@ func readMemoryDir(root fs.FS, projectName string) ([]MemoryEntry, error) {
 		if err != nil {
 			continue
 		}
-		out = append(out, MemoryEntry{
+		out = append(out, contracts.MemoryFile{
 			Project:    contracts.ProjectID(projectName),
 			FileName:   entry.Name(),
 			SizeBytes:  info.Size(),
@@ -120,19 +102,19 @@ func readMemoryDir(root fs.FS, projectName string) ([]MemoryEntry, error) {
 // existence, but most callers either follow up with a read
 // (which would fail anyway) or are about to write the file
 // for the first time.
-func MemoryFilePath(project contracts.ProjectID, fileName string) string {
+func (p *Provider) MemoryFilePath(project contracts.ProjectID, fileName string) string {
 	return path.Join(projectsDir, string(project), memoryDir, fileName)
 }
 
-// PlanDeleteProjectMemory returns a DeletePlan that wipes every
-// memory file in one project. The plan goes through chronicle's
-// normal trash flow, so the user can restore the memory if they
-// regret deleting it.
+// PlanDeleteProjectMemory returns a DeletePlan that wipes
+// every memory file in one project. The plan goes through
+// chronicle's normal trash flow, so the user can restore the
+// memory if they regret deleting it.
 //
-// We return a plan instead of doing the delete directly because
-// the memory files are real user content. Routing through the
-// dry-run-then-apply flow keeps the safety story consistent
-// with `chronicle clean`.
+// We return a plan instead of doing the delete directly
+// because the memory files are real user content. Routing
+// through the dry-run-then-apply flow keeps the safety story
+// consistent with `chronicle clean`.
 func (p *Provider) PlanDeleteProjectMemory(root fs.FS, project contracts.ProjectID) (contracts.DeletePlan, error) {
 	dir := path.Join(projectsDir, string(project), memoryDir)
 	entries, err := fs.ReadDir(root, dir)
@@ -151,3 +133,12 @@ func (p *Provider) PlanDeleteProjectMemory(root fs.FS, project contracts.Project
 	}
 	return plan, nil
 }
+
+// Compile-time check: *Provider satisfies the optional
+// contracts.MemoryStore capability. If we ever add a method
+// to MemoryStore or change a signature, the build fails right
+// here with an error that names the missing method. This is
+// the protection that catches the exact kind of drift that
+// produced the empty-memory-list bug during the first
+// implementation pass.
+var _ contracts.MemoryStore = (*Provider)(nil)

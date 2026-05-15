@@ -7,19 +7,19 @@ import (
 	"testing/fstest"
 )
 
-// TestListMemoryFiles_findsFilesAcrossProjects walks two
+// TestListMemories_findsFilesAcrossProjects walks two
 // projects, one with a memory directory and one without. The
 // function should return entries only for the project that
 // actually has memory files, sorted MEMORY.md first because
 // uppercase sorts before lowercase.
-func TestListMemoryFiles_findsFilesAcrossProjects(t *testing.T) {
+func TestListMemories_findsFilesAcrossProjects(t *testing.T) {
 	fsys := fstest.MapFS{
 		"projects/-Users-test-projA/" + validUUID + ".jsonl": {Data: []byte(`{}`)},
 		"projects/-Users-test-projA/memory/MEMORY.md":        {Data: []byte("# index")},
 		"projects/-Users-test-projA/memory/architecture.md":  {Data: []byte("# arch notes")},
 		"projects/-Users-test-projB/" + otherUUID + ".jsonl": {Data: []byte(`{}`)},
 	}
-	entries, err := New().ListMemoryFiles(fsys)
+	entries, err := New().ListMemories(fsys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,11 +37,11 @@ func TestListMemoryFiles_findsFilesAcrossProjects(t *testing.T) {
 	}
 }
 
-// TestListMemoryFiles_emptyTreeReturnsNoEntries covers the
+// TestListMemories_emptyTreeReturnsNoEntries covers the
 // no-projects case. A brand-new chronicle install should not
 // crash on an empty tree, just return an empty slice.
-func TestListMemoryFiles_emptyTreeReturnsNoEntries(t *testing.T) {
-	entries, err := New().ListMemoryFiles(fstest.MapFS{})
+func TestListMemories_emptyTreeReturnsNoEntries(t *testing.T) {
+	entries, err := New().ListMemories(fstest.MapFS{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,17 +50,17 @@ func TestListMemoryFiles_emptyTreeReturnsNoEntries(t *testing.T) {
 	}
 }
 
-// TestListMemoryFiles_skipsNonMarkdownFiles makes sure we only
+// TestListMemories_skipsNonMarkdownFiles makes sure we only
 // surface .md files to the user. If something else lands in
 // the memory directory, it is not Claude's auto-memory and we
 // should leave it for the user to investigate manually.
-func TestListMemoryFiles_skipsNonMarkdownFiles(t *testing.T) {
+func TestListMemories_skipsNonMarkdownFiles(t *testing.T) {
 	fsys := fstest.MapFS{
 		"projects/-Users-test/memory/MEMORY.md": {Data: []byte("# index")},
 		"projects/-Users-test/memory/notes.txt": {Data: []byte("not memory")},
 		"projects/-Users-test/memory/.DS_Store": {Data: []byte("macos junk")},
 	}
-	entries, err := New().ListMemoryFiles(fsys)
+	entries, err := New().ListMemories(fsys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestListMemoryFiles_skipsNonMarkdownFiles(t *testing.T) {
 // disk for editing or showing. Pinning the format here means
 // no caller has to assemble the path by hand.
 func TestMemoryFilePath(t *testing.T) {
-	got := MemoryFilePath("-Users-test-proj", "MEMORY.md")
+	got := New().MemoryFilePath("-Users-test-proj", "MEMORY.md")
 	want := "projects/-Users-test-proj/memory/MEMORY.md"
 	if got != want {
 		t.Errorf("MemoryFilePath = %q, want %q", got, want)
