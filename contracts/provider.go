@@ -26,15 +26,15 @@ import "io/fs"
 //
 // Every Provider has to follow four rules.
 //
-//	1. Detect the storage version from a fingerprint of the first
-//	   few records, so we can tell new versions apart from old ones.
-//	2. Parse tolerantly. Record types and content kinds we do not
-//	   recognize become UnknownBlock values, never dropped silently.
-//	3. Set the right Capabilities flags, so the user interface knows
-//	   which features to show without having to look at the version.
-//	4. Write a structured warning report when an unrecognized
-//	   fingerprint shows up, so the user knows their data is being
-//	   read in read-only mode.
+//  1. Detect the storage version from a fingerprint of the first
+//     few records, so we can tell new versions apart from old ones.
+//  2. Parse tolerantly. Record types and content kinds we do not
+//     recognize become UnknownBlock values, never dropped silently.
+//  3. Set the right Capabilities flags, so the user interface knows
+//     which features to show without having to look at the version.
+//  4. Write a structured warning report when an unrecognized
+//     fingerprint shows up, so the user knows their data is being
+//     read in read-only mode.
 type Provider interface {
 	Name() string
 

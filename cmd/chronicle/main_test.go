@@ -23,9 +23,9 @@ func TestRootCmd_versionFlag(t *testing.T) {
 	}
 }
 
-// TestRootCmd_helpListsSubcommands proves --help mentions each
-// subcommand chronicle ships in this plan. If a subcommand goes
-// missing from the registration in newRootCmd, this test fails.
+// TestRootCmd_helpListsSubcommands proves --help mentions every
+// subcommand chronicle ships today. If a subcommand goes missing
+// from the registration in newRootCmd, this test fails.
 func TestRootCmd_helpListsSubcommands(t *testing.T) {
 	cmd := newRootCmd()
 	var buf bytes.Buffer

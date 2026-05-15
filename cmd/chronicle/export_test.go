@@ -19,8 +19,10 @@ type stubProvider struct {
 	convo contracts.Conversation
 }
 
-func (stubProvider) Name() string                                   { return "stub" }
-func (stubProvider) Detect(fs.FS) (contracts.StorageVersion, error) { return contracts.StorageVersion{Adapter: "stub", Version: "stub-1"}, nil }
+func (stubProvider) Name() string { return "stub" }
+func (stubProvider) Detect(fs.FS) (contracts.StorageVersion, error) {
+	return contracts.StorageVersion{Adapter: "stub", Version: "stub-1"}, nil
+}
 func (stubProvider) ListProjects(fs.FS) ([]contracts.Project, error) {
 	return nil, nil
 }

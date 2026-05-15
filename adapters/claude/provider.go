@@ -238,8 +238,8 @@ func locateSessionFile(root fs.FS, id contracts.SessionID) (string, error) {
 }
 
 // PlanDelete and PlanOrphanScan call the stubs in cleanup_stub.go
-// for now. The real cascade-aware versions land in a later plan,
-// once the trash subsystem exists to back them up.
+// for now. The real cascade-aware versions arrive once the trash
+// subsystem exists to back them up.
 //
 // Keeping the destructive paths as stubs is a safety choice. The
 // stub returns ErrNotImplemented and that is all it does. There is

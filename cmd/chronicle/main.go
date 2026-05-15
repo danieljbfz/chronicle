@@ -18,8 +18,8 @@ import (
 )
 
 // version is the chronicle version string. We bump it by hand for
-// now. A later plan can switch to a build-time injected version
-// once we have a release process.
+// now and can switch to a build-time injected version once we
+// have a release process.
 var version = "0.1.0-plan-a"
 
 func main() {
@@ -38,7 +38,7 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "chronicle",
 		Short:         "Browse, export, and clean the history of AI coding assistants",
-		Long:          "chronicle reads ~/.claude (and in later plans VS Code Copilot storage),\nrenders sessions as Markdown, and helps you clean up the mess.",
+		Long:          "chronicle reads the on-disk history of AI coding assistants,\nrenders sessions as Markdown, and helps you clean up the mess.\n\nClaude Code is supported today. GitHub Copilot, Cursor, and others\nare coming.",
 		SilenceUsage:  true,
 		SilenceErrors: false,
 		Version:       version,

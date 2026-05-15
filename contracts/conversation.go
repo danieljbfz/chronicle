@@ -48,9 +48,9 @@ func (c Conversation) FirstUserPrompt() string {
 }
 
 // IsAbandoned reports whether the session has zero real user
-// prompts. The cleanup feature in a later plan uses this check to
-// find the sessions the user opened by accident, ran a command or
-// two in, and then never returned to.
+// prompts. The cleanup feature uses this check to find the
+// sessions the user opened by accident, ran a command or two in,
+// and then never returned to.
 //
 // On the author's own machine, sessions like that account for
 // nearly one in five of every session file on disk. Each one takes

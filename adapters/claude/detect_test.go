@@ -64,7 +64,7 @@ func TestDetect_realFixtureProducesFingerprint(t *testing.T) {
 		t.Error("Fingerprint should be set for parseable JSONL")
 	}
 	if got.Version != "unknown" {
-		t.Logf("Version = %q (will become claude-1.0 once the final task adds the fingerprint)", got.Version)
+		t.Logf("Version = %q (the fixture happens to match a known fingerprint)", got.Version)
 	}
 }
 

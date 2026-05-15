@@ -29,8 +29,8 @@ func TestFirstUserPrompt_skipsMetaAndAssistant(t *testing.T) {
 // TestIsAbandoned_emptySessionReturnsTrue confirms the cleanup
 // criterion: a session with only meta records and assistant messages
 // counts as abandoned, because there is no real human input to
-// preserve. This is the shape of session that the cleanup feature
-// will surface for one-key removal in a later plan.
+// preserve. This is the shape of session the cleanup feature will
+// surface for one-key removal.
 func TestIsAbandoned_emptySessionReturnsTrue(t *testing.T) {
 	c := Conversation{
 		Messages: []Message{

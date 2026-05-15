@@ -70,8 +70,8 @@ func TestParse_smallSessionShape(t *testing.T) {
 // Conversation type to confirm the empty fixture really does count
 // as abandoned. The fixture contains only synthetic meta records
 // (the session-start hook, a /clear command echo) and no real user
-// prompts, which is the canonical shape of the sessions chronicle
-// will surface for cleanup in a later plan.
+// prompts. This is the canonical shape of the sessions the cleanup
+// command will surface for one-key removal.
 func TestParse_emptySessionIsAbandoned(t *testing.T) {
 	c := readSession(t, "empty_session.jsonl")
 	if !c.IsAbandoned() {

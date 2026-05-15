@@ -19,15 +19,15 @@ import (
 //
 // The sequence itself is made of four parts.
 //
-//	1. ESC, the byte that opens an Operating System Command.
-//	2. The literal "52;c;", which says "this is a clipboard write
-//	   to the system selection". The "c" picks the system clipboard.
-//	   X11 has two other clipboards called primary and secondary,
-//	   but most macOS users have no use for either of them.
-//	3. The text to copy, encoded in base64. The OSC 52 spec requires
-//	   base64, and using it also keeps multi-byte or binary text
-//	   intact through the terminal stream.
-//	4. BEL, the byte that closes the sequence.
+//  1. ESC, the byte that opens an Operating System Command.
+//  2. The literal "52;c;", which says "this is a clipboard write
+//     to the system selection". The "c" picks the system clipboard.
+//     X11 has two other clipboards called primary and secondary,
+//     but most macOS users have no use for either of them.
+//  3. The text to copy, encoded in base64. The OSC 52 spec requires
+//     base64, and using it also keeps multi-byte or binary text
+//     intact through the terminal stream.
+//  4. BEL, the byte that closes the sequence.
 func OSC52Sequence(text string) string {
 	encoded := base64.StdEncoding.EncodeToString([]byte(text))
 	return "\x1b]52;c;" + encoded + "\x07"

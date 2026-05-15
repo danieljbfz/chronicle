@@ -27,11 +27,10 @@
 // plan. For the version-one chronicle, the tree gets flattened to a
 // chronological list, but the data is already there for later.
 //
-// What this package implements right now is read-only. Detect,
-// ListProjects, ListSessions, and ReadSession all do real work. The
-// PlanDelete and PlanOrphanScan methods return ErrNotImplemented for
-// now and the cleanup plan in a later phase wires them up. The split
-// is deliberate: the early commits cannot accidentally delete
-// anything, because the destructive code paths simply do not exist
-// yet.
+// The package today is read-only. Detect, ListProjects,
+// ListSessions, and ReadSession all do real work. PlanDelete and
+// PlanOrphanScan return ErrNotImplemented and the cleanup work
+// will fill them in once the trash subsystem is ready. The split
+// is deliberate: the destructive code paths do not exist yet, so
+// nothing chronicle does today can accidentally delete anything.
 package claude

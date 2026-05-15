@@ -1,8 +1,9 @@
 // Package composition is the only layer in chronicle that talks to
 // the real filesystem. It builds the providers from the registry,
 // hands each one a fs.FS pointed at its data directory, and exposes
-// a small set of methods the entrypoints (the CLI today, the TUI
-// and web frontends in later plans) call into.
+// a small set of methods the entrypoints call into. The CLI is the
+// only entrypoint today. Future entrypoints (a terminal UI, a local
+// web frontend) will use the same methods.
 //
 // The split between composition and the entrypoints is on purpose.
 // The CLI does not know about the Claude adapter or any other
@@ -202,6 +203,6 @@ func (a *App) ReadSession(id contracts.SessionID) (contracts.Conversation, error
 func (a *App) Settings() config.Config { return a.settings }
 
 // Locations returns the resolved filesystem locations. The doctor
-// command and the trash command (in a later plan) use this to show
-// or operate on chronicle's own directories.
+// command and the trash command use this to show or operate on
+// chronicle's own directories.
 func (a *App) Locations() paths.Locations { return a.locations }
