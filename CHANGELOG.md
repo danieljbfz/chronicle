@@ -7,6 +7,26 @@ and the project follows [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
+- `chronicle clean abandoned` finds sessions with zero real
+  user prompts and (with `--apply`) moves them into the trash.
+  Defaults to dry-run, so the user always sees the plan before
+  any file moves.
+- `chronicle trash list/restore/empty` manages trashed entries.
+  Restore puts an entry back where it came from. Empty removes
+  entries past the retention window from the user's config (30
+  days by default), with a `--force` flag for the rare case
+  when the user wants to clear everything immediately.
+- Cascade-aware deletion. Removing a Claude session also removes
+  its `file-history/`, `tasks/`, `session-env/`, and `sessions/`
+  metadata. Removing a Copilot session also removes its
+  `chatEditingSessions/` directory.
+- Trash subsystem with manifest files, atomic per-entry moves
+  with rollback on failure, and cross-filesystem support
+  through a copy+remove fallback when `os.Rename` cannot work.
+- Both adapters now satisfy `contracts.Cleaner` with
+  `PlanDelete` and `PlanOrphanScan`.
+
+### Added (earlier)
 - Read-only Claude Code adapter. Detects sessions in `~/.claude`,
   parses JSONL session files, and surfaces unknown record types
   through the resilience contract.

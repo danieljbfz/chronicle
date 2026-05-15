@@ -126,17 +126,13 @@ func TestProvider_ReadSession_findsEmptyWindowSession(t *testing.T) {
 	}
 }
 
-// TestProvider_doesNotImplementCleanerYet pins the read-only
-// status of the Copilot adapter today. The cascade-aware cleanup
-// arrives once the trash subsystem is in place. Until then, the
-// type system itself prevents anyone from accidentally calling
-// destructive methods, because *Provider does not satisfy the
-// contracts.Cleaner interface. If anyone adds the cleanup methods
-// without going through a proper review of the cascade-delete
-// map, this test fails and forces the conversation.
-func TestProvider_doesNotImplementCleanerYet(t *testing.T) {
+// TestProvider_implementsCleaner pins the fact that the Copilot
+// adapter supports cascade-aware cleanup. If anyone ever removes
+// one of the Cleaner methods, the type assertion fails and the
+// test catches the regression before any destructive code ships.
+func TestProvider_implementsCleaner(t *testing.T) {
 	var p any = New()
-	if _, ok := p.(contracts.Cleaner); ok {
-		t.Error("*Provider should not satisfy contracts.Cleaner until the trash subsystem lands")
+	if _, ok := p.(contracts.Cleaner); !ok {
+		t.Error("*Provider should satisfy contracts.Cleaner")
 	}
 }

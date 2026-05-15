@@ -17,6 +17,10 @@ go build -o chronicle ./cmd/chronicle
 - `chronicle export <sessionId> [-o file.md]` — write a filtered Markdown transcript.
 - `chronicle copy <sessionId>` — copy the same transcript to the clipboard via OSC 52.
 - `chronicle doctor` — show detected providers, their versions, and any format warnings.
+- `chronicle clean abandoned [--apply]` — find sessions with zero real user prompts and (with `--apply`) move them into the trash. Defaults to dry-run.
+- `chronicle trash list` — list recoverable entries currently in the trash.
+- `chronicle trash restore <entry-id>` — move one trashed entry back to its original location.
+- `chronicle trash empty [--force]` — permanently remove trash entries past the retention window. With `--force`, removes everything regardless of age.
 
 ## Recognized storage versions
 
