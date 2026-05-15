@@ -159,3 +159,52 @@ func TestParse_syntheticFutureKeepsUnknowns(t *testing.T) {
 		t.Error("unknown content kind must surface as UnknownBlock — the resilience canary")
 	}
 }
+
+// TestMostFrequentModel_picksTheValueWithTheHighestCount confirms
+// the simple majority case. Three assistant messages on model A and
+// one on model B mean A is the session-level summary.
+func TestMostFrequentModel_picksTheValueWithTheHighestCount(t *testing.T) {
+	messages := []contracts.Message{
+		{Role: contracts.RoleAssistant, Model: "sonnet"},
+		{Role: contracts.RoleAssistant, Model: "sonnet"},
+		{Role: contracts.RoleAssistant, Model: "sonnet"},
+		{Role: contracts.RoleAssistant, Model: "opus"},
+	}
+	if got := mostFrequentModel(messages); got != "sonnet" {
+		t.Errorf("model = %q, want sonnet", got)
+	}
+}
+
+// TestMostFrequentModel_breaksTiesByFirstAppearance pins the
+// tie-breaking rule. When two models are tied on count, the model
+// that appeared first in the conversation wins, which gives a
+// deterministic answer the user can predict.
+func TestMostFrequentModel_breaksTiesByFirstAppearance(t *testing.T) {
+	messages := []contracts.Message{
+		{Role: contracts.RoleAssistant, Model: "opus"},
+		{Role: contracts.RoleAssistant, Model: "sonnet"},
+		{Role: contracts.RoleAssistant, Model: "opus"},
+		{Role: contracts.RoleAssistant, Model: "sonnet"},
+	}
+	if got := mostFrequentModel(messages); got != "opus" {
+		t.Errorf("model = %q, want opus (it appeared first)", got)
+	}
+}
+
+// TestMostFrequentModel_returnsEmptyWhenNoModelsRecorded covers the
+// shape we feed back to the stats renderer. A session with no
+// assistant messages, or with assistant messages whose Model field
+// is empty, should produce the empty string so the renderer can
+// group it under "(unknown)".
+func TestMostFrequentModel_returnsEmptyWhenNoModelsRecorded(t *testing.T) {
+	if got := mostFrequentModel(nil); got != "" {
+		t.Errorf("model = %q, want empty for nil messages", got)
+	}
+	messages := []contracts.Message{
+		{Role: contracts.RoleUser, Model: ""},
+		{Role: contracts.RoleAssistant, Model: ""},
+	}
+	if got := mostFrequentModel(messages); got != "" {
+		t.Errorf("model = %q, want empty for messages without models", got)
+	}
+}
