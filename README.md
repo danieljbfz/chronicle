@@ -15,7 +15,7 @@ go build -o chronicle ./cmd/chronicle
 
 ## What chronicle covers
 
-Every command runs read-only by default. Anything destructive defaults to dry-run; pass `--apply` to perform the operation. Deletions go through a recoverable trash, not straight off disk.
+Every command runs read-only by default. Anything destructive defaults to dry-run. Pass `--apply` to perform the operation. Deletions go through a recoverable trash, not straight off disk.
 
 ### Browse and inspect
 
@@ -68,7 +68,7 @@ Each subcommand finds one kind of cruft and (with `--apply`) moves it into the t
 
 ## Provider capability matrix
 
-Not every provider supports every feature. The base `Provider` interface (read sessions, list projects) is required; everything else is an optional capability discovered by type assertion at runtime. Adding a new provider is one new package under `adapters/` plus one entry in `adapters/all.go`.
+Not every provider supports every feature. The base `Provider` interface (read sessions, list projects) is required, and everything else is an optional capability discovered by type assertion at runtime. Adding a new provider is one new package under `adapters/` plus one entry in `adapters/all.go`.
 
 GitHub markets several products under the umbrella name "Copilot." Chronicle models each that writes local data as its own adapter, with honest names that reflect the product (`copilot-chat` for the VS Code Chat extension, `copilot-agent` for the `@github/copilot-sdk` runtime). See `docs/provider-surface.md` for the full reasoning.
 

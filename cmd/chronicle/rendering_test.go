@@ -105,9 +105,9 @@ func TestRunClean_dryRunPrintsPlanAndReminder(t *testing.T) {
 	}}
 	var buf bytes.Buffer
 	// We pass a nil App because the dry-run path never
-	// touches it; the apply path would, and that branch is
-	// covered by the composition-layer tests against a real
-	// App.
+	// touches it. The apply path would, and that branch
+	// is covered by the composition-layer tests against a
+	// real App.
 	if err := runClean(nil, planned, false, &buf); err != nil {
 		t.Fatal(err)
 	}

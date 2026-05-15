@@ -38,7 +38,7 @@ const fixtureClaudeJSON = `{
 // writeFixture builds a temp home dir with a .claude.json
 // file inside, where the placeholders have been replaced
 // with real paths the test controls. The "keep" path
-// resolves to a real directory; the "gone" path is a
+// resolves to a real directory. The "gone" path is a
 // constructed absolute path that does not exist.
 func writeFixture(t *testing.T) (homeDir, keepPath, gonePath string) {
 	t.Helper()

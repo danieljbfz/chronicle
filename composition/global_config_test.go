@@ -95,8 +95,8 @@ func TestListConfigProjects_returnsEntriesFromOneProvider(t *testing.T) {
 
 // TestListConfigProjects_filtersByProvider mirrors the
 // pattern used by the other listing methods. Two providers
-// with global-config support; the filter should scope the
-// result to the named one.
+// with global-config support, and the filter should scope
+// the result to the named one.
 func TestListConfigProjects_filtersByProvider(t *testing.T) {
 	a := makeGlobalConfigApp(t,
 		&globalConfigFake{name: "claude", entries: []contracts.ConfigProjectEntry{{Key: "/c/keep"}}},

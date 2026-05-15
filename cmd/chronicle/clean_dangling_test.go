@@ -44,7 +44,7 @@ func TestRunDanglingCleanup_dryRunPrintsPlan(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	// We pass nil for App because the dry-run path never
-	// touches it; the apply path would, and that is
+	// touches it. The apply path would, and that is
 	// covered by the composition-layer tests against a
 	// real fake App.
 	if err := runDanglingCleanup(nil, dangling, false, &buf); err != nil {

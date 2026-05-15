@@ -45,7 +45,7 @@ func New() *Provider { return &Provider{} }
 // NewWithHome returns a Provider whose GlobalConfig methods can
 // reach Claude's global config file at <homeDir>/.claude.json. The
 // adapter still receives an fs.FS for its data root through the
-// usual contract methods; homeDir is a separate value because
+// usual contract methods. homeDir is a separate value because
 // the global config file falls outside that root.
 func NewWithHome(homeDir string) *Provider {
 	return &Provider{homeDir: homeDir}

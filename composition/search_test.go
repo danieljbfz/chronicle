@@ -192,8 +192,8 @@ func TestSearch_resultsAreStableAcrossRuns(t *testing.T) {
 
 // TestSearch_skipsUnreadableSessionsAndContinues confirms
 // the resilience contract. A session that fails to read
-// must not abort the whole search; it just gets skipped
-// while the others come through.
+// must not abort the whole search. The failed session
+// gets skipped while the other sessions come through.
 func TestSearch_skipsUnreadableSessionsAndContinues(t *testing.T) {
 	fake := &searchFake{
 		name:     "claude",

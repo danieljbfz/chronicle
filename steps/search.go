@@ -159,7 +159,7 @@ func findAll(haystack, needle string) []int {
 // content the snippet did not cover.
 //
 // The function counts in bytes, not runes. For ASCII text
-// the two are identical; for text with multi-byte runes the
+// the two are identical. For text with multi-byte runes the
 // snippet may start or end inside a rune, which produces
 // the Unicode replacement character on display. We accept
 // that trade-off because the snippet is short and the

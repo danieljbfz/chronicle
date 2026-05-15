@@ -13,7 +13,7 @@ import (
 
 // sampleStats builds a small two-provider Stats fixture the
 // rendering tests share. Real values come from App.Stats in
-// production; the rendering layer only needs a well-formed
+// production. The rendering layer only needs a well-formed
 // in-memory value to exercise its branches.
 func sampleStats() composition.Stats {
 	oldest := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

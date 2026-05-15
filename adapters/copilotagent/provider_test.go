@@ -12,8 +12,9 @@ import (
 
 // realSessionUUID is the UUID we stamp on every test
 // session. It just needs to be a stable string the tests
-// can reference; the agent runtime uses real UUIDs but
-// nothing in the parser cares about the format.
+// can reference. The agent runtime uses real UUIDs in
+// production, but nothing in the parser cares about the
+// format.
 const realSessionUUID = "11111111-1111-1111-1111-111111111111"
 
 // minimalEvents is the smallest event stream that exercises
@@ -185,7 +186,7 @@ func TestProvider_ReadSessionUnknownIDReturnsErrNotExist(t *testing.T) {
 
 // TestParse_unknownEventTypeBecomesUnknownBlock pins the
 // resilience contract. A future agent runtime that adds a
-// new event type must not lose data; chronicle wraps the
+// new event type must not lose data. Chronicle wraps the
 // raw line in an UnknownBlock and surfaces it through the
 // renderer.
 func TestParse_unknownEventTypeBecomesUnknownBlock(t *testing.T) {

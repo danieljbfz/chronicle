@@ -52,7 +52,7 @@ greeting := "hi"              // short declaration: type inferred (string)
 const adapterName = "claude"  // compile-time constant
 ```
 
-The `:=` shortcut is the most common. Use it inside functions; use `var` at package level. The zero value of every type is well-defined (`0` for numbers, `""` for strings, `nil` for pointers, slices, maps, interfaces, channels, and function values). You will never see "undefined variable" runtime errors — only the compiler complains.
+The `:=` shortcut is the most common form. Reach for it inside functions. Reach for the older `var` form at package level. The zero value of every type is well-defined (`0` for numbers, `""` for strings, `nil` for pointers, slices, maps, interfaces, channels, and function values). You will never see "undefined variable" runtime errors — only the compiler complains.
 
 ---
 

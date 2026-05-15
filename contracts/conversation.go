@@ -19,6 +19,13 @@ import "time"
 // the user was inside when the session started. For Copilot, which
 // keys sessions by VS Code workspace rather than by directory, Cwd
 // is empty unless the workspace's filesystem path is also known.
+//
+// Model is the model identifier the adapter pulls from the
+// session's native metadata. Claude reports the most-frequent
+// per-message value. copilot-agent reports the single
+// session-level selectedModel. copilot-chat reports the
+// user's selected model when one is recorded. An adapter
+// that cannot determine the model leaves the field empty.
 type Conversation struct {
 	SessionID    SessionID
 	Project      ProjectID
@@ -26,6 +33,7 @@ type Conversation struct {
 	StartedAt    time.Time
 	EndedAt      time.Time
 	Title        string
+	Model        string
 	Messages     []Message
 	Capabilities Capabilities
 	Source       StorageVersion

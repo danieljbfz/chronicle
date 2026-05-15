@@ -11,12 +11,10 @@ import (
 
 // CleanCategory is the kind of cleanup the user wants to run.
 // Each category corresponds to a single, well-defined heuristic
-// for what counts as deletable: abandoned sessions are sessions
-// with zero real user prompts; orphans are sibling files whose
-// owning session no longer exists; and so on.
-//
-// Today only "abandoned" is implemented. Adding a new category
-// (stale, large, by-project) is one new branch in PlanCleanup.
+// for what counts as deletable. Abandoned sessions are sessions
+// with zero real user prompts. Orphans are sibling files whose
+// owning session no longer exists. Each future category lands
+// as one more value here and one more branch in PlanCleanup.
 type CleanCategory string
 
 const (
@@ -114,8 +112,8 @@ func (a *App) PlanCleanup(categories []CleanCategory, providerName string) ([]Pl
 		cleaner, ok := p.Provider.(contracts.Cleaner)
 		if !ok {
 			// Provider does not implement cleanup. Silently
-			// skip; doctor view surfaces this if the user
-			// asks.
+			// skip. The doctor view surfaces this if the
+			// user asks.
 			continue
 		}
 		for _, category := range categories {
@@ -261,7 +259,7 @@ func (a *App) PlanCleanupStale(olderThan time.Duration, providerName string) ([]
 // reads each session summary, and produces a per-session
 // DeletePlan for any session whose LastActive predates the
 // cutoff. We use summaries (not full conversations) because
-// the timestamp is already on the SessionSummary; reading
+// the timestamp is already on the SessionSummary. Reading
 // the full session would be wasteful when stale-detection
 // only needs one date field.
 //

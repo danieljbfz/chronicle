@@ -171,7 +171,7 @@ The binary. Each subcommand lives in its own file so its flags and run function 
 | `export.go` | The `chronicle export <id>` subcommand. Reads a session, applies the user's filters, and writes Markdown to a file or stdout. |
 | `copy.go` | The `chronicle copy <id>` subcommand. Same Markdown pipeline as `export`, but writes the OSC 52 escape sequence so the result lands in the system clipboard. |
 | `doctor.go` | The `chronicle doctor` subcommand. Renders the result of `App.Doctor()` as text or JSON. |
-| `clean.go` | The `chronicle clean` subcommand and its category subcommands (today only `abandoned`). Defaults to dry-run; the `--apply` flag is the explicit opt-in to actually move files. |
+| `clean.go` | The `chronicle clean` subcommand and its category subcommands (`abandoned`, `orphans`, `stale`, `dangling`). Defaults to dry-run. The `--apply` flag is the explicit opt-in to actually move files. |
 | `trash.go` | The `chronicle trash` subcommand and its three children: `list`, `restore <id>`, and `empty [--force]`. The user reaches restorable entries through the IDs that `trash list` prints. |
 | `*_test.go` | Behaviour tests for the subcommand wiring, including a fake provider for the export pipeline. |
 

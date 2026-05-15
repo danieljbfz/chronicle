@@ -66,12 +66,12 @@ file conventions.
 Only one tool has it. Chronicle either models it as an optional
 capability that only one adapter implements (the current pattern) or
 deliberately leaves it alone. Example: Claude's `~/.claude.json` is
-specific to Claude; a Cursor or Antigravity adapter would have a
+specific to Claude. A Cursor or Antigravity adapter would have a
 different file or no equivalent.
 
 **Bucket 4: Chronicle-added concepts.**
-Neither tool exposes it as a first-class concept; chronicle invented
-it. Example: cross-provider search, cross-provider stats,
+Neither tool exposes it as a first-class concept, and chronicle
+invented it. Example: cross-provider search, cross-provider stats,
 multi-provider unification at the CLI surface.
 
 The architectural rule is the same in every bucket: the contracts
@@ -198,16 +198,16 @@ This is the foundation. Both tools fit cleanly.
 
 | Concept | Claude shape | Copilot shape | Chronicle modeling |
 | --- | --- | --- | --- |
-| Cleanup of stale data | Claude has its own cleaner with `cleanupPeriodDays` | Copilot has no equivalent | `contracts.Cleaner` (both implement; semantics differ) |
-| Per-project memory | `projects/<cwd>/memory/MEMORY.md` + topic files | repo-level custom instructions | `contracts.MemoryStore` (Claude implements; Copilot does not, because per-repo files are user-source not chronicle-state) |
-| User-global instructions | `~/.claude/CLAUDE.md` | Copilot personal custom instructions (cloud-stored or IDE settings) | `contracts.GlobalMemoryStore` (Claude implements; Copilot does not, because not on local disk) |
-| User-global config with per-project entries | `~/.claude.json` projects map | no direct equivalent (per-project state lives in workspaceStorage, not a single map) | `contracts.GlobalConfig` (Claude implements; Copilot does not) |
-| Resume in original tool | `claude --resume <id>` CLI flag | VS Code Chat has no external API to jump to a session by id; the @github/copilot-sdk does have a resumable-session contract but we have not yet wired it through | `contracts.Resumable` (Claude implements; copilot-agent is the natural next candidate) |
+| Cleanup of stale data | Claude has its own cleaner with `cleanupPeriodDays` | Copilot has no equivalent | `contracts.Cleaner` — both implement, semantics differ |
+| Per-project memory | `projects/<cwd>/memory/MEMORY.md` + topic files | repo-level custom instructions | `contracts.MemoryStore` — Claude implements, Copilot does not, because per-repo files are user-source not chronicle-state |
+| User-global instructions | `~/.claude/CLAUDE.md` | Copilot personal custom instructions (cloud-stored or IDE settings) | `contracts.GlobalMemoryStore` — Claude implements, Copilot does not, because not on local disk |
+| User-global config with per-project entries | `~/.claude.json` projects map | no direct equivalent (per-project state lives in workspaceStorage, not a single map) | `contracts.GlobalConfig` — Claude implements, Copilot does not |
+| Resume in original tool | `claude --resume <id>` CLI flag | VS Code Chat has no external API to jump to a session by id. The @github/copilot-sdk does have a resumable-session contract, but we have not yet wired it through | `contracts.Resumable` — Claude implements, copilot-agent is the natural next candidate |
 
 The pattern: every optional capability that exists today is also a
 real candidate for another adapter to implement, once we read that
 adapter's docs and confirm the semantics line up. The capability
-interfaces are not Claude-specific; they are concept-specific.
+interfaces are not Claude-specific. They are concept-specific.
 
 ### Bucket 3: provider-specific concepts
 
@@ -353,7 +353,7 @@ analysis above. The README references it.
 | `Cleaner` (delete sessions, scan orphans) | ✓ | ✓ | ✗ (deferred until cascade rules for checkpoints/files/research are clear) |
 | `MemoryStore` (per-project memory) | ✓ | ✗ (no per-project memory in VS Code Chat) | ✗ (no per-project memory in the SDK) |
 | `GlobalMemoryStore` (user-wide instructions) | ✓ | ✗ (cloud-stored, not local) | ✗ (none in the SDK) |
-| `Resumable` (re-open in original tool) | ✓ | ✗ (no external API) | ✗ (candidate; the SDK is designed for resumable sessions, work pending) |
+| `Resumable` (re-open in original tool) | ✓ | ✗ (no external API) | ✗ (candidate — the SDK is designed for resumable sessions, work pending) |
 | `GlobalConfig` (per-project config entries) | ✓ | ✗ (no single global config with project map) | ✗ (none in the SDK) |
 
 The asymmetry is real and intentional. Each row reflects

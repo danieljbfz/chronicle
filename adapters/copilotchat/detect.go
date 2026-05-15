@@ -202,7 +202,7 @@ func collectFingerprintInputs(r io.Reader) ([]steps.FingerprintInput, bool, erro
 
 // topLevelKeys decodes the snapshot value into a generic map and
 // returns its top-level key names. We do not care about the values
-// here; the fingerprint is just a hash of the schema shape.
+// here. The fingerprint is just a hash of the schema shape.
 func topLevelKeys(raw json.RawMessage) []string {
 	var snapshot map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &snapshot); err != nil {

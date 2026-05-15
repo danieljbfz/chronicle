@@ -47,7 +47,7 @@ const (
 
 // rawEvent is the envelope every event in the agent stream
 // shares. The Data field stays as raw JSON because each
-// event type has a different inner shape; the second-pass
+// event type has a different inner shape. The second-pass
 // parser unmarshals Data into the appropriate typed struct
 // once it knows the type.
 type rawEvent struct {
@@ -102,7 +102,7 @@ type toolCompleteData struct {
 
 // vscodeMetadata is the optional sidecar VS Code writes
 // when it launches a session. We use it only for the
-// session title; the authoritative cwd is the one in the
+// session title. The authoritative cwd is the one in the
 // session.start event.
 type vscodeMetadata struct {
 	WorkspaceFolder struct {

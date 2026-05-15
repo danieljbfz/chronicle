@@ -65,7 +65,7 @@ func (f *cleanerFake) PlanOrphanScan(fs.FS) (contracts.DeletePlan, error) {
 // We want a real data root because PlanCleanup eventually
 // calls Trash, which moves files to disk, and Trash needs a
 // real filesystem to do its job. The fake stands in only for
-// the Provider methods; the trash side stays on real disk.
+// the Provider methods. The trash side stays on real disk.
 func newCleanTestApp(t *testing.T, fake *cleanerFake) (*App, string) {
 	t.Helper()
 	dataRoot := t.TempDir()

@@ -251,7 +251,7 @@ var _ contracts.MemoryStore = (*Provider)(nil)
 
 // Compile-time check: *Provider satisfies the optional
 // contracts.GlobalMemoryStore capability. Same protection
-// pattern as MemoryStore: a future contract change surfaces
-// here at build time rather than as a runtime ok=false on
-// the type assertion.
+// pattern as MemoryStore: a future contract change
+// surfaces here at build time instead of as a runtime
+// ok=false on the type assertion.
 var _ contracts.GlobalMemoryStore = (*Provider)(nil)

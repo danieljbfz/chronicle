@@ -124,7 +124,7 @@ func TestTrash_movesFilesAndWritesManifest(t *testing.T) {
 // TestTrash_skipsMissingItems confirms the resilience contract:
 // a file the user manually deleted between PlanDelete and Trash
 // should be skipped, not abort the whole move. The fixture has
-// one real file and one missing file in the same plan; the real
+// one real file and one missing file in the same plan. The real
 // one should land in trash, and the entry should reflect just
 // that one.
 func TestTrash_skipsMissingItems(t *testing.T) {

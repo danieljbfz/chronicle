@@ -234,6 +234,7 @@ type userBody struct {
 type assistantBody struct {
 	Role    string          `json:"role"`
 	Content json.RawMessage `json:"content"`
+	Model   string          `json:"model"`
 }
 
 // parseUserRecord turns one user-typed record into a Message. The

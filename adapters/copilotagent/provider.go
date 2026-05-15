@@ -57,7 +57,7 @@ func (*Provider) Name() string { return adapterName }
 
 // Detect returns the StorageVersion for the given root.
 // The first call inspects the root for a session-state
-// directory; every later call serves from the in-memory
+// directory. Every later call serves from the in-memory
 // cache.
 func (p *Provider) Detect(root fs.FS) (contracts.StorageVersion, error) {
 	if p.cacheOK {
@@ -85,6 +85,9 @@ func (p *Provider) Detect(root fs.FS) (contracts.StorageVersion, error) {
 // fresh-install user with no agent activity yet hits this
 // branch.
 func (p *Provider) ListProjects(root fs.FS) ([]contracts.Project, error) {
+	// Step 1: enumerate the session-state directory. A
+	// missing directory is the fresh-install case and
+	// translates to an empty result rather than an error.
 	entries, err := fs.ReadDir(root, sessionStateDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -93,6 +96,12 @@ func (p *Provider) ListProjects(root fs.FS) ([]contracts.Project, error) {
 		return nil, newError("list projects", sessionStateDir, err)
 	}
 
+	// Step 2: count sessions and accumulate disk usage.
+	// We measure each session's events.jsonl size because
+	// that is the dominant on-disk weight per session. A
+	// more precise total would walk every file inside the
+	// session directory and sum, which is not worth the
+	// cost for a listing.
 	sessionCount := 0
 	var totalBytes int64
 	for _, entry := range entries {
@@ -100,17 +109,15 @@ func (p *Provider) ListProjects(root fs.FS) ([]contracts.Project, error) {
 			continue
 		}
 		sessionCount++
-		// The session size is the size of every file
-		// inside the session directory, not just events.jsonl.
-		// We count the events.jsonl size because that is the
-		// dominant on-disk weight; a more precise total
-		// would walk every file inside the directory and
-		// sum, which is not worth the cost for a listing.
 		eventsPath := path.Join(sessionStateDir, entry.Name(), eventsFile)
 		if info, err := fs.Stat(root, eventsPath); err == nil {
 			totalBytes += info.Size()
 		}
 	}
+
+	// Step 3: emit one synthetic project covering every
+	// session, or nothing at all when the user has never
+	// invoked the agent runtime.
 	if sessionCount == 0 {
 		return nil, nil
 	}
@@ -125,11 +132,14 @@ func (p *Provider) ListProjects(root fs.FS) ([]contracts.Project, error) {
 // ListSessions returns one SessionSummary per session
 // directory under session-state/. The adapter ignores the
 // project argument because every session belongs to the
-// single synthetic project; the parameter is retained to
+// single synthetic project. The parameter is retained to
 // satisfy the contracts.Provider interface and so a
 // future per-cwd grouping refinement does not change the
 // signature.
 func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]contracts.SessionSummary, error) {
+	// Step 1: enumerate the session-state directory. A
+	// missing directory is the fresh-install case and
+	// translates to an empty result rather than an error.
 	entries, err := fs.ReadDir(root, sessionStateDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -138,6 +148,10 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 		return nil, newError("list sessions", sessionStateDir, err)
 	}
 
+	// Step 2: read each session and build a SessionSummary.
+	// One unreadable session should not bury the rest, so
+	// we skip it and let the doctor view surface the
+	// per-session read failure if the user asks.
 	var summaries []contracts.SessionSummary
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -146,10 +160,6 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 		sessionDir := path.Join(sessionStateDir, entry.Name())
 		conv, err := readSession(root, sessionDir, p.cached)
 		if err != nil {
-			// One unreadable session should not bury the
-			// rest. We skip it and let the doctor view
-			// surface the per-session read failure if the
-			// user asks.
 			continue
 		}
 		var size int64
@@ -169,6 +179,10 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 			Source:       p.cached,
 		})
 	}
+
+	// Step 3: sort newest-first so the listing reads as
+	// "what did I do most recently?" The other adapters
+	// follow the same convention.
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].LastActive.After(summaries[j].LastActive)
 	})
@@ -196,9 +210,9 @@ func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Co
 
 // sessionTitle picks the best title for a session listing.
 // readSession populates conv.Title from
-// vscode.metadata.json when present; otherwise we fall back
-// to the first user prompt, the same convention every
-// other adapter follows.
+// vscode.metadata.json when that sidecar is present.
+// Otherwise the function falls back to the first user
+// prompt, the same convention every other adapter follows.
 func sessionTitle(conv contracts.Conversation) string {
 	if conv.Title != "" {
 		return conv.Title

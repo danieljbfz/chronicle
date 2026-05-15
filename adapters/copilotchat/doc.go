@@ -1,6 +1,6 @@
-// Package copilot is the chronicle adapter for the GitHub
-// Copilot Chat extension in VS Code. Like the Claude
-// adapter, its job is to translate the messy,
+// Package copilotchat is the chronicle adapter for the
+// GitHub Copilot Chat extension in VS Code. Like the
+// Claude adapter, its job is to translate the messy,
 // tool-specific files on disk into the clean, shared
 // types defined in the contracts package, so the rest of
 // chronicle can render and operate on conversations

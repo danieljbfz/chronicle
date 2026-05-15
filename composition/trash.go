@@ -154,7 +154,9 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 		if _, err := os.Lstat(original); err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				// The file vanished between plan-time and now.
-				// Skip it; do not abort the whole move.
+				// We skip this item and keep moving the rest
+				// of the plan, since one missing file is a
+				// normal race rather than a real failure.
 				continue
 			}
 			rollbackMoves(completed)
@@ -224,9 +226,10 @@ func (a *App) TrashList() ([]TrashEntry, error) {
 		}
 		entry, err := readManifest(filepath.Join(a.locations.TrashDir, dirent.Name()))
 		if err != nil {
-			// Skip unreadable entries. A future doctor view can
-			// surface these as warnings; for now we silently move
-			// past them so the user sees what is restorable.
+			// Skip unreadable entries. A future doctor view
+			// can surface these as warnings. For now we
+			// silently move past them so the user sees what
+			// is restorable.
 			continue
 		}
 		out = append(out, entry)
@@ -286,9 +289,10 @@ func (a *App) TrashRestore(id string) error {
 // than the retention window from the user's config (typically 30
 // days). Setting Force=true removes everything regardless of age.
 type TrashEmptyOptions struct {
-	// Force, when true, ignores the retention window and removes
-	// every entry. Use sparingly; this is the only command in
-	// chronicle that performs an unrecoverable delete.
+	// Force, when true, ignores the retention window and
+	// removes every entry. Reach for the flag sparingly.
+	// This is the only command in chronicle that performs
+	// an unrecoverable delete.
 	Force bool
 
 	// Now overrides the current time, used by tests to make

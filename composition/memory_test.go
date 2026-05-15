@@ -88,7 +88,7 @@ func (f *memoryFake) PlanDeleteProjectMemory(_ fs.FS, project contracts.ProjectI
 // newMemoryTestApp builds an App with one memoryFake
 // provider plus a real (temporary) data root and trash
 // directory. The data root is real because composition's
-// memory methods read and write actual files; the fake
+// memory methods read and write actual files. The fake
 // stands in only for the provider interface methods.
 func newMemoryTestApp(t *testing.T, fake *memoryFake) (*App, string) {
 	t.Helper()
@@ -380,9 +380,10 @@ func newGlobalMemoryTestApp(t *testing.T, fake *globalMemoryFake) (*App, string)
 
 // TestListMemories_includesGlobalEntriesAlongsideProject
 // proves the aggregated listing covers both scopes. The
-// fake exposes one per-project file and one global file; the
-// listing should return both, with the global entry having
-// an empty ProjectID so the renderer can distinguish them.
+// fake exposes one per-project file and one global file.
+// The listing should return both, with the global entry
+// having an empty ProjectID so the renderer can
+// distinguish them.
 func TestListMemories_includesGlobalEntriesAlongsideProject(t *testing.T) {
 	combined := &combinedMemoryFake{
 		name: "claude",

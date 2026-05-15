@@ -18,7 +18,7 @@ import (
 // configuration:
 //
 //	show — what config is chronicle actually using right now?
-//	edit — let me change it
+//	edit — open it in $EDITOR
 //	path — where is the file?
 //
 // We deliberately do not ship `get` or `set` subcommands.
