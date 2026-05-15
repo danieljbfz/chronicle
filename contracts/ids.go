@@ -1,7 +1,35 @@
 // Package contracts defines the normalized domain types that every higher
 // layer of chronicle speaks. Adapters translate provider-specific shapes
-// into these. Steps, composition, and entrypoints know nothing about
-// provider-specific schemas.
+// (Claude JSONL, Copilot event-log) into these. Steps, composition, and
+// entrypoints know nothing about provider-specific schemas — they only
+// know the types in this package.
+//
+// In hexagonal architecture terms, this package is the "port" side: a
+// pure description of the domain with no I/O and no dependency on any
+// outside system. See docs/superpowers/specs/2026-05-15-chronicle-design.md
+// §3 for the architectural picture.
+//
+// -----------------------------------------------------------------------
+// Go concepts introduced in this file
+// -----------------------------------------------------------------------
+//
+// 1. THE `package` DECLARATION. Every Go file starts with `package <name>`.
+//    The package name must match the folder name. Other packages reach
+//    into this one via `contracts.ProjectID`, etc.
+//
+// 2. NAMED TYPES (`type Foo Bar`). The line `type ProjectID string` does
+//    not create an alias — it creates a brand-new type whose underlying
+//    representation happens to be a string. The Go compiler will refuse to
+//    pass a plain `string` where a `ProjectID` is expected without an
+//    explicit conversion `ProjectID(s)`. That is the whole point: the type
+//    system catches "I passed a session id where a project id was expected"
+//    at compile time, before any test runs. This is a cheap way to add
+//    safety with zero runtime cost.
+//
+// 3. CONSTANTS WITH `iota`-LIKE NAMING. Below we declare `Role` constants
+//    using a block `const (...)`. Go's standard library uses `MixedCaps`
+//    for constants (e.g. `time.RFC3339`), not `UPPER_SNAKE_CASE`. We
+//    follow that. See docs/naming-conventions.md.
 package contracts
 
 // ProjectID identifies a project within a provider. It is opaque to the UI;
@@ -17,7 +45,9 @@ type SessionID string
 // from the record index.
 type MessageID string
 
-// Role is the speaker of a Message.
+// Role is the speaker of a Message. It is a named string type — readers
+// see "user" / "assistant" / "system" — but the type system prevents us
+// from passing a random string anywhere a Role is expected.
 type Role string
 
 const (

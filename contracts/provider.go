@@ -1,5 +1,34 @@
 package contracts
 
+// -----------------------------------------------------------------------
+// Go concepts introduced in this file
+// -----------------------------------------------------------------------
+//
+// 1. INTERFACES AS ARCHITECTURAL PORTS. The `Provider` interface below is
+//    the central seam of chronicle's hexagonal architecture. The CLI, the
+//    web frontend, and (later) the TUI all depend on this interface, not
+//    on any concrete adapter. Adding a new tool (Cursor, Antigravity) is
+//    a matter of writing a new type that satisfies Provider — the rest of
+//    chronicle does not need to know which adapters exist.
+//
+// 2. MULTIPLE RETURN VALUES. Every method below returns `(result, error)`.
+//    This is the canonical Go shape: the caller writes
+//        result, err := provider.ReadSession(...)
+//        if err != nil { return err }
+//    Errors are values, not exceptions. There is no try/catch. The
+//    pattern looks repetitive but makes failure paths visible at every
+//    call site, which is exactly what we want for a tool that reads
+//    other tools' shifting on-disk formats. See docs/go-primer.md §7.
+//
+// 3. `io/fs` AND `fs.FS` — TESTABLE FILESYSTEMS. Methods take `root fs.FS`
+//    rather than a path string. `fs.FS` is a tiny interface from the
+//    standard library: anything with an `Open(name string) (fs.File, error)`
+//    method satisfies it. Production code passes `os.DirFS("/home/u/.claude")`;
+//    tests pass `fstest.MapFS{"projects/p/s.jsonl": &fstest.MapFile{...}}`.
+//    The adapter has no idea whether it is reading the user's real disk
+//    or a fixture in memory. This is the single most important pattern
+//    for testable Go code, and we use it everywhere.
+
 import "io/fs"
 
 // Provider is the per-tool adapter contract. Composition passes each
@@ -11,6 +40,9 @@ import "io/fs"
 // two cases only: the path is unreachable, or no record in the storage is
 // parseable as JSON at all. A file with valid JSON whose schema we do not
 // recognize is Version = "unknown", not an error.
+//
+// See docs/superpowers/specs/2026-05-15-chronicle-design.md §6 for the
+// full resilience contract every Provider implementation must satisfy.
 type Provider interface {
 	Name() string
 
