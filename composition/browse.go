@@ -44,12 +44,11 @@ type App struct {
 // per enabled tool, and runs Detect on each provider so the doctor
 // view has results to show.
 //
-// Detect failures need a small note. A provider whose data
-// directory does not exist (the user has not installed that tool,
-// or has never run it) reports an fs.ErrNotExist error. We treat
-// that as "this provider is just not active right now" and keep
-// going. Other Detect errors are real, and we surface them so the
-// caller can decide what to do.
+// Detect failures get a small note. A provider whose data
+// directory is missing (e.g., the user has not installed that
+// tool, or has never run it) reports fs.ErrNotExist. We treat
+// that as "this provider is just not active right now" and move
+// on. Other Detect errors are real, and we surface them.
 func New() (*App, error) {
 	locations, err := paths.Resolve()
 	if err != nil {
@@ -195,10 +194,11 @@ func (a *App) ReadSession(id contracts.SessionID) (contracts.Conversation, error
 	return contracts.Conversation{}, fs.ErrNotExist
 }
 
-// Settings returns the user's resolved config. Callers that need to
-// override config values with command-line flags read the config
-// here, apply their override locally, and pass the modified value
-// down. Composition itself does not mutate the config.
+// Settings returns the user's resolved config. Callers that need
+// to override a config value with a command-line flag read the
+// config here, apply the override to their own local copy, and use
+// that local copy for the rest of the call. Composition never
+// mutates the shared config.
 func (a *App) Settings() config.Config { return a.settings }
 
 // Locations returns the resolved filesystem locations. The doctor

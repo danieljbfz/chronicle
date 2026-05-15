@@ -17,12 +17,12 @@ import "io/fs"
 //
 // Detect always returns a non-nil StorageVersion. There are only
 // two cases where it returns an error instead. The first is when
-// the path is unreachable, for example because of a permission
-// denial or a missing root. The second is when no record in the
-// file parses as JSON at all, which means we are not looking at
-// the right kind of file. A file with valid JSON we do not
-// recognize is not an error. We set Version to "unknown" and the
-// rest of the system stays read-only.
+// the path is unreachable (e.g., a permission denial or a missing root).
+// The second is when no record in the file parses as JSON at all,
+// which means we are not looking at the right kind of file. A
+// file with valid JSON we do not recognize is not an error. We
+// set Version to "unknown" and the rest of the system stays
+// read-only.
 //
 // Every Provider has to follow four rules.
 //
