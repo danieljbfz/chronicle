@@ -24,20 +24,24 @@ func buildClaudeFSWithCascade(t *testing.T) fstest.MapFS {
 		"file-history/abc/snap1@v2":      {Data: []byte("v2 longer")},
 		"tasks/abc/state.json":           {Data: []byte(`{"task":"x"}`)},
 		"session-env/abc":                {Data: []byte("ENV=value")},
-		"sessions/abc.json":              {Data: []byte(`{"meta":true}`)},
 		// Session def has only the .jsonl, no siblings.
 		"projects/-Users-test/def.jsonl": {Data: []byte(`{"type":"user","sessionId":"def"}`)},
 	}
 }
 
 // TestPlanDelete_includesEverySibling proves the cascade map
-// catches every sibling artifact for a session that has them
-// all. The fixture has six total items (the .jsonl, two
-// file-history files, the tasks dir, the session-env file, the
-// sessions metadata file). After the plan groups them by the
-// six top-level paths, we expect five plan items: the .jsonl,
-// the file-history directory (counted once with its inner
-// files summed), tasks, session-env, and sessions metadata.
+// catches every per-session sibling for a session that has
+// them all. The fixture has the .jsonl, two file-history
+// files, the tasks/ directory, and the session-env file. After
+// the plan groups them by their top-level paths, we expect
+// four plan items: the .jsonl, the file-history directory
+// (counted once with its inner files summed), tasks, and
+// session-env.
+//
+// The sessions/ directory deliberately stays out of the
+// cascade. Files there describe live Claude processes and are
+// keyed by PID, not by session UUID, so they have nothing to
+// do with chronicle's per-session deletes.
 func TestPlanDelete_includesEverySibling(t *testing.T) {
 	p := New()
 	plan, err := p.PlanDelete(buildClaudeFSWithCascade(t), "abc")
@@ -51,10 +55,10 @@ func TestPlanDelete_includesEverySibling(t *testing.T) {
 		t.Errorf("session id = %q, want abc", plan.SessionID)
 	}
 
-	// Five top-level items: .jsonl, file-history/abc, tasks/abc,
-	// session-env/abc, sessions/abc.json.
-	if len(plan.Items) != 5 {
-		t.Fatalf("plan items = %d, want 5; got %#v", len(plan.Items), plan.Items)
+	// Four top-level items: .jsonl, file-history/abc, tasks/abc,
+	// session-env/abc.
+	if len(plan.Items) != 4 {
+		t.Fatalf("plan items = %d, want 4; got %#v", len(plan.Items), plan.Items)
 	}
 
 	// The total size should at least cover the file-history
@@ -97,10 +101,14 @@ func TestPlanDelete_unknownSessionWrapsErrNotExist(t *testing.T) {
 
 // TestPlanOrphanScan_findsOrphans builds a fake install where
 // the projects/ directory has session abc but file-history,
-// tasks, and session-env have entries for sessions ghost and
-// vanished. The orphan scan should produce a plan with three
-// items, one per orphan, and zero items for abc which is still
-// alive.
+// tasks, and session-env have entries for sessions ghost,
+// vanished, and longgone. The orphan scan should produce one
+// orphan item per stale entry and zero items for abc which is
+// still alive.
+//
+// The sessions/ directory is intentionally absent from the
+// fixture. Files there describe live Claude processes and
+// chronicle never touches them.
 func TestPlanOrphanScan_findsOrphans(t *testing.T) {
 	fsys := fstest.MapFS{
 		"projects/-Users-test/abc.jsonl": {Data: []byte(`{"type":"user","sessionId":"abc"}`)},
@@ -110,15 +118,14 @@ func TestPlanOrphanScan_findsOrphans(t *testing.T) {
 		"file-history/ghost/snap":   {Data: []byte("ghost data")},
 		"tasks/vanished/state.json": {Data: []byte("{}")},
 		"session-env/longgone":      {Data: []byte("env")},
-		"sessions/missing.json":     {Data: []byte("{}")},
 	}
 	p := New()
 	plan, err := p.PlanOrphanScan(fsys)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Items) != 4 {
-		t.Errorf("orphan items = %d, want 4 (ghost, vanished, longgone, missing); got %#v", len(plan.Items), plan.Items)
+	if len(plan.Items) != 3 {
+		t.Errorf("orphan items = %d, want 3 (ghost, vanished, longgone); got %#v", len(plan.Items), plan.Items)
 	}
 	if plan.Category != "claude-orphans" {
 		t.Errorf("category = %q, want claude-orphans", plan.Category)

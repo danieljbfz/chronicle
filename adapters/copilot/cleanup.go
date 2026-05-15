@@ -103,6 +103,12 @@ func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
 			return contracts.DeletePlan{}, newError("plan orphan scan", ws.Name(), err)
 		}
 	}
+
+	// In addition to the per-workspace orphans above, scan for
+	// the floating-junk files that have nothing to do with a
+	// specific workspace. These live under globalStorage and
+	// have their own heuristics in orphans.go.
+	scanFloatingOrphans(root, &plan)
 	return plan, nil
 }
 

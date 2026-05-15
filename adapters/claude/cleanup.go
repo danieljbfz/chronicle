@@ -22,11 +22,18 @@ import (
 // every entry is named after a session UUID. So deleting
 // session <id> means also deleting `<sibling>/<id>`, whether
 // that turns out to be a file or a directory.
+//
+// Note: the `sessions/` directory at the Claude root holds a
+// different kind of file. The names there are process IDs of
+// live Claude instances, not session UUIDs, and the contents
+// describe the running process (status, working directory,
+// version). We do not include it in the cascade map because
+// touching those files while Claude is running could break
+// Claude's own session tracking.
 const (
 	fileHistoryDir = "file-history"
 	tasksDir       = "tasks"
 	sessionEnvDir  = "session-env"
-	sessionsDir    = "sessions"
 )
 
 // categoryClaudeSession is the label every per-session deletion
@@ -42,7 +49,6 @@ const categoryClaudeSession = "claude-session"
 //   - The file-history/<id>/ directory of versioned file backups
 //   - The tasks/<id>/ directory of task state
 //   - The session-env/<id> file of captured environment
-//   - The sessions/<id>.json metadata file
 //
 // Any sibling that does not exist on disk is dropped silently
 // from the plan. We never include a path the user would not
@@ -76,7 +82,6 @@ func (p *Provider) PlanDelete(root fs.FS, id contracts.SessionID) (contracts.Del
 	addItem(root, &plan, path.Join(fileHistoryDir, string(id)), "file history")
 	addItem(root, &plan, path.Join(tasksDir, string(id)), "task state")
 	addItem(root, &plan, path.Join(sessionEnvDir, string(id)), "captured environment")
-	addItem(root, &plan, path.Join(sessionsDir, string(id)+".json"), "session metadata")
 
 	return plan, nil
 }
@@ -116,6 +121,13 @@ func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
 			addItem(root, &plan, path.Join(sibling.dir, entry.Name()), sibling.reason)
 		}
 	}
+
+	// In addition to the per-session orphans above, scan for the
+	// floating-junk files that have nothing to do with a
+	// specific session. These live in their own helper so each
+	// heuristic stays small and the cleanup map for "what is
+	// orphan?" reads as one ordered list.
+	scanFloatingOrphans(root, &plan)
 	return plan, nil
 }
 
@@ -135,7 +147,6 @@ var orphanSiblings = []orphanSibling{
 	{dir: fileHistoryDir, reason: "orphaned file history"},
 	{dir: tasksDir, reason: "orphaned task state"},
 	{dir: sessionEnvDir, reason: "orphaned environment capture"},
-	{dir: sessionsDir, suffix: ".json", reason: "orphaned session metadata"},
 }
 
 // collectKnownSessionIDs walks the projects directory and returns

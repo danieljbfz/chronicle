@@ -35,6 +35,44 @@ recoverable through 'chronicle trash restore' until they age out
 or you run 'chronicle trash empty --force'.`,
 	}
 	cmd.AddCommand(newCleanAbandonedCmd())
+	cmd.AddCommand(newCleanOrphansCmd())
+	return cmd
+}
+
+// newCleanOrphansCmd builds the `chronicle clean orphans`
+// subcommand. An orphan is a file left behind on disk after the
+// session that owned it is gone, or floating junk like old
+// shell snapshots and rotated configuration backups that have
+// nothing to do with a specific session. Each adapter knows
+// its own list of orphan kinds.
+//
+// The command is the safest way to recover disk space, because
+// orphans by definition do not belong to any live session, so
+// removing them cannot affect anything the user is currently
+// using. Even so, the command defaults to dry-run, so the user
+// always sees the plan before any file moves.
+func newCleanOrphansCmd() *cobra.Command {
+	var (
+		apply        bool
+		providerFlag string
+	)
+	cmd := &cobra.Command{
+		Use:   "orphans",
+		Short: "Find files left behind from gone sessions and floating junk (dry-run by default)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := composition.New()
+			if err != nil {
+				return fail("init: %v", err)
+			}
+			planned, err := app.PlanCleanup([]composition.CleanCategory{composition.CategoryOrphans}, providerFlag)
+			if err != nil {
+				return fail("plan: %v", err)
+			}
+			return runClean(app, planned, apply, cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().BoolVar(&apply, "apply", false, "Actually move files (default is dry-run)")
+	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider, like "claude"`)
 	return cmd
 }
 

@@ -23,6 +23,13 @@ const (
 	// and never returned to. The IsAbandoned predicate on
 	// Conversation defines the rule: zero real user prompts.
 	CategoryAbandoned CleanCategory = "abandoned"
+
+	// CategoryOrphans finds files left behind from sessions
+	// that no longer exist, plus floating junk like old shell
+	// snapshots and rotated configuration backups. Each
+	// adapter knows its own list of orphan kinds, and the
+	// per-adapter PlanOrphanScan method enumerates them.
+	CategoryOrphans CleanCategory = "orphans"
 )
 
 // PlannedDeletion pairs one DeletePlan with the providerEntry
@@ -112,9 +119,28 @@ func planForCategory(p *providerEntry, cleaner contracts.Cleaner, category Clean
 	switch category {
 	case CategoryAbandoned:
 		return planAbandonedSessions(p, cleaner)
+	case CategoryOrphans:
+		return planOrphans(p, cleaner)
 	default:
 		return nil, fmt.Errorf("unknown clean category %q", category)
 	}
+}
+
+// planOrphans calls the adapter's PlanOrphanScan and wraps the
+// result in a slice. The orphan scan returns one combined plan
+// per adapter (every orphan kind grouped together), so we have
+// one plan to surface to the user instead of dozens of
+// per-file plans. An empty plan, with zero items, is dropped
+// silently because there is nothing for the user to review.
+func planOrphans(p *providerEntry, cleaner contracts.Cleaner) ([]contracts.DeletePlan, error) {
+	plan, err := cleaner.PlanOrphanScan(p.FS)
+	if err != nil {
+		return nil, err
+	}
+	if len(plan.Items) == 0 {
+		return nil, nil
+	}
+	return []contracts.DeletePlan{plan}, nil
 }
 
 // planAbandonedSessions walks every project under the provider,
