@@ -13,7 +13,15 @@ go build -o chronicle ./cmd/chronicle
 
 ## Subcommands (Plan A scope)
 
-- `chronicle list` — list Claude Code sessions, one JSON-line per session.
+- `chronicle list` — list Claude Code sessions, one JSON line per session.
 - `chronicle export <sessionId> [-o file.md]` — write a filtered Markdown transcript.
-- `chronicle copy <sessionId>` — copy the same transcript to the clipboard via OSC52.
+- `chronicle copy <sessionId>` — copy the same transcript to the clipboard via OSC 52.
 - `chronicle doctor` — show detected providers, their versions, and any format warnings.
+
+## Recognized storage versions
+
+| Provider | Version | Fingerprint | First seen |
+|---|---|---|---|
+| Claude Code | `claude-1.0` | `25ce9fd0794c` | 2026-05-15 (Claude Code 2.1.x) |
+
+If `chronicle doctor` shows `Version: unknown`, the fingerprint did not match the table above. The tool still works in read-only mode — the resilience contract is documented in `docs/research/07-schema-resilience.md`.

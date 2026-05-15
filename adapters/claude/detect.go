@@ -55,9 +55,8 @@ const scannerBufferMax = 16 * 1024 * 1024
 // the doctor command prints the fingerprint we observed and we add
 // it here in a follow-up commit.
 var knownFingerprints = map[string]string{
-	// Empty for now. The final task of this plan adds the first
-	// entry, after running chronicle against the contributor's own
-	// ~/.claude.
+	// Captured against Claude Code 2.1.x on 2026-05-15.
+	"25ce9fd0794c": "claude-1.0",
 }
 
 // detectInDir computes the fingerprint and the resulting
