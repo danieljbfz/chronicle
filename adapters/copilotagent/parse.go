@@ -3,7 +3,6 @@ package copilotagent
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"io/fs"
 	"path"
 	"sort"
@@ -332,17 +331,21 @@ func assistantMessageBlocks(d assistantMessageData) []contracts.Block {
 }
 
 // readVscodeTitle returns the customTitle from the
-// vscode.metadata.json sidecar when it exists. Sessions
-// launched from other frontends do not have this file, in
-// which case the function returns the empty string and the
-// caller falls back to the first user prompt as the title.
+// vscode.metadata.json sidecar. The sidecar exists only
+// when VS Code launched the session, so most calls return
+// the empty string and the caller falls back to the first
+// user prompt.
+//
+// The function never returns an error. A missing sidecar,
+// a permission denial, or malformed JSON all produce the
+// same empty string. The fallback already covers the
+// missing-title case, and aborting a whole session read
+// just to surface a sidecar problem would punish the user
+// for a small thing.
 func readVscodeTitle(root fs.FS, sessionDir string) string {
 	metaPath := path.Join(sessionDir, vscodeMetadataFile)
 	data, err := fs.ReadFile(root, metaPath)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return ""
-		}
 		return ""
 	}
 	var meta vscodeMetadata
