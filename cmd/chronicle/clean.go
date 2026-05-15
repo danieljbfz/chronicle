@@ -72,7 +72,7 @@ func newCleanOrphansCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&apply, "apply", false, "Actually move files (default is dry-run)")
-	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider, like "claude"`)
+	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider by name (see chronicle doctor for the list)`)
 	return cmd
 }
 
@@ -103,7 +103,7 @@ func newCleanAbandonedCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&apply, "apply", false, "Actually move files (default is dry-run)")
-	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider, like "claude"`)
+	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider by name (see chronicle doctor for the list)`)
 	return cmd
 }
 

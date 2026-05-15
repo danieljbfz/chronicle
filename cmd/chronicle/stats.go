@@ -48,7 +48,7 @@ func newStatsCmd() *cobra.Command {
 			return writeStatsText(cmd.OutOrStdout(), stats)
 		},
 	}
-	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider, like "claude"`)
+	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider by name (see chronicle doctor for the list)`)
 	cmd.Flags().IntVar(&topN, "top", 0, "Number of top projects to show (0 uses the default)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit results as JSON instead of text")
 	return cmd

@@ -33,7 +33,7 @@ func newListCmd() *cobra.Command {
 			return writeListings(cmd.OutOrStdout(), listings)
 		},
 	}
-	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider, like "claude"`)
+	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider by name (see chronicle doctor for the list)`)
 	return cmd
 }
 

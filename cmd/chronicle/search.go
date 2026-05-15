@@ -74,7 +74,7 @@ matching session, suitable for piping into other tools.`,
 			return writeSearchText(cmd.OutOrStdout(), results)
 		},
 	}
-	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider, like "claude"`)
+	cmd.Flags().StringVar(&providerFlag, "provider", "", `Limit to one provider by name (see chronicle doctor for the list)`)
 	cmd.Flags().BoolVar(&caseSensitiveFlag, "case-sensitive", false, "Match the query case exactly")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "Emit results as JSON lines instead of text")
 	return cmd

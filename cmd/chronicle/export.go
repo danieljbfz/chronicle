@@ -77,7 +77,7 @@ The directory is created if it does not exist.`,
 	cmd.Flags().BoolVar(&noMeta, "no-meta", false, "Drop meta messages like slash-command echoes")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Write to this file (single mode) or directory (bulk mode)")
 	cmd.Flags().StringVar(&bulkProject, "bulk", "", "Export every session in one project. Value is the project id.")
-	cmd.Flags().StringVar(&providerName, "provider", "", `Disambiguate when more than one provider knows the project, like "claude"`)
+	cmd.Flags().StringVar(&providerName, "provider", "", `Disambiguate when more than one provider knows the project (see chronicle doctor for the list)`)
 	return cmd
 }
 
