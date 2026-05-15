@@ -70,7 +70,7 @@ func claudeFactory(settings config.Config, locations paths.Locations) []Entry {
 		root = locations.ClaudeRoot
 	}
 	return []Entry{{
-		Provider: claude.New(),
+		Provider: claude.NewWithHome(locations.HomeDir),
 		Root:     root,
 		FS:       os.DirFS(root),
 	}}

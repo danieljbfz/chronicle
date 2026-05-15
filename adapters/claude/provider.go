@@ -16,16 +16,40 @@ import (
 // not re-fingerprint on every call. Methods that need the cached
 // version read it from the cached field. Methods that do not, like
 // the plain listing methods, ignore it.
+//
+// homeDir is the absolute path of the user's home directory. The
+// optional contracts.GlobalConfig methods need it because Claude's
+// global config file (~/.claude.json) lives one level above the
+// adapter's data root (~/.claude/) and so falls outside the fs.FS
+// the other methods receive. Tests that exercise the global-config
+// surface call NewWithHome with a temp directory and place a
+// fixture .claude.json there.
 type Provider struct {
 	cached  contracts.StorageVersion
 	cacheOK bool
+	homeDir string
 }
 
 // New returns a ready-to-use Provider. The constructor stays
 // I/O-free on purpose, so we do not call Detect here. The first
 // caller that asks for the storage version is the one that triggers
 // the disk read, and everyone after that gets the cached result.
+//
+// New does not set homeDir, so the optional GlobalConfig methods
+// will return an explicit error when called. Production code uses
+// NewWithHome via the registry factory, so the home dir is always
+// populated in real runs. Tests that do not exercise GlobalConfig
+// can keep using New unchanged.
 func New() *Provider { return &Provider{} }
+
+// NewWithHome returns a Provider whose GlobalConfig methods can
+// reach Claude's global config file at <homeDir>/.claude.json. The
+// adapter still receives an fs.FS for its data root through the
+// usual contract methods; homeDir is a separate value because
+// the global config file falls outside that root.
+func NewWithHome(homeDir string) *Provider {
+	return &Provider{homeDir: homeDir}
+}
 
 // Name returns the adapter's stable identifier. The same string
 // shows up in the registry, in the doctor view, and in the JSON

@@ -28,6 +28,7 @@ type Locations struct {
 	ConfigFile   string
 	TrashDir     string
 	ReportsDir   string
+	HomeDir      string
 	ClaudeRoot   string
 	CopilotRoots []string
 }
@@ -51,6 +52,7 @@ func Resolve() (Locations, error) {
 		ConfigFile:   filepath.Join(config, "config.toml"),
 		TrashDir:     filepath.Join(config, "trash"),
 		ReportsDir:   filepath.Join(config, "format-reports"),
+		HomeDir:      home,
 		ClaudeRoot:   filepath.Join(home, ".claude"),
 		CopilotRoots: defaultCopilotRoots(home),
 	}, nil
