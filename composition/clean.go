@@ -111,9 +111,10 @@ func (a *App) PlanCleanup(categories []CleanCategory, providerName string) ([]Pl
 		}
 		cleaner, ok := p.Provider.(contracts.Cleaner)
 		if !ok {
-			// Provider does not implement cleanup. Silently
-			// skip. The doctor view surfaces this if the
-			// user asks.
+			// This provider does not implement the Cleaner
+			// capability, so we skip it without any visible
+			// signal. The doctor view surfaces the gap when
+			// the user asks for a capability report.
 			continue
 		}
 		for _, category := range categories {
@@ -315,9 +316,12 @@ func (a *App) ExecuteCleanup(planned []PlannedDeletion) ([]TrashEntry, error) {
 	var entries []TrashEntry
 	for _, pd := range planned {
 		if len(pd.Plan.Items) == 0 {
-			// Empty plan, nothing to move. Useful guard
-			// because PlanCleanup may produce empty plans for
-			// categories that found no targets.
+			// The plan is empty, so there is nothing to move
+			// to the trash. The check matters because
+			// PlanCleanup can return an empty plan for a
+			// category that found no targets, and trying to
+			// move zero items would still produce a trash
+			// entry the user does not need.
 			continue
 		}
 		entry, err := a.Trash(plannedDeletion{provider: pd.provider, plan: pd.Plan})
