@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"time"
 
 	"github.com/danieljbfz/chronicle/contracts"
 )
@@ -30,7 +31,26 @@ const (
 	// adapter knows its own list of orphan kinds, and the
 	// per-adapter PlanOrphanScan method enumerates them.
 	CategoryOrphans CleanCategory = "orphans"
+
+	// CategoryStale finds sessions whose last activity is
+	// older than a user-supplied threshold. The threshold
+	// is not part of the category enum because it is a
+	// numeric parameter, so the CLI calls PlanCleanupStale
+	// directly instead of routing through PlanCleanup. The
+	// constant exists so the trash listing can label
+	// stale-cleanup entries consistently with the abandoned
+	// and orphan ones.
+	CategoryStale CleanCategory = "stale"
 )
+
+// minimumStaleAge is the smallest threshold PlanCleanupStale
+// accepts. Claude itself rejects cleanupPeriodDays = 0 with
+// a similar minimum, because "delete every session" is too
+// destructive to be reachable through a numeric off-by-one.
+// A user who wants to delete every session has chronicle
+// clean abandoned (with clearer semantics) or chronicle
+// trash empty (which acts on already-trashed entries).
+const minimumStaleAge = 24 * time.Hour
 
 // PlannedDeletion pairs one DeletePlan with the providerEntry
 // that produced it. The trash subsystem needs both pieces when
@@ -175,6 +195,100 @@ func planAbandonedSessions(p *providerEntry, cleaner contracts.Cleaner) ([]contr
 				return nil, err
 			}
 			if !conv.IsAbandoned() {
+				continue
+			}
+			plan, err := cleaner.PlanDelete(p.FS, summary.ID)
+			if err != nil {
+				return nil, err
+			}
+			plans = append(plans, plan)
+		}
+	}
+	return plans, nil
+}
+
+// PlanCleanupStale walks every provider that supports
+// cleanup and produces one DeletePlan per session whose
+// LastActive timestamp is older than now-olderThan. The
+// result is a flat slice of PlannedDeletion values across
+// providers, the same shape PlanCleanup returns, so the CLI
+// can render and execute them through the same code paths.
+//
+// olderThan must be at least minimumStaleAge (24 hours).
+// Smaller values are rejected. The reasoning lives on the
+// constant: "delete every session" is too destructive to be
+// reachable through a near-zero number.
+//
+// Sessions whose LastActive timestamp is the zero value are
+// skipped silently. The zero value usually means the
+// adapter could not extract an end time from the file
+// (older sessions, hand-edited fixtures), and treating
+// "unknown last activity" as "infinitely old" would be
+// surprising. Users who want to clean those sessions can
+// use chronicle clean abandoned, which uses the conversation
+// content rather than the timestamp.
+//
+// Pass a non-empty providerName to limit the result to one
+// tool. The match is by Provider.Name(), the same string
+// chronicle doctor displays.
+func (a *App) PlanCleanupStale(olderThan time.Duration, providerName string) ([]PlannedDeletion, error) {
+	if olderThan < minimumStaleAge {
+		return nil, fmt.Errorf("clean stale: --older-than must be at least %s", minimumStaleAge)
+	}
+	cutoff := time.Now().Add(-olderThan)
+
+	var planned []PlannedDeletion
+	for _, p := range a.providers {
+		if providerName != "" && p.Provider.Name() != providerName {
+			continue
+		}
+		cleaner, ok := p.Provider.(contracts.Cleaner)
+		if !ok {
+			continue
+		}
+		plans, err := planStaleSessions(p, cleaner, cutoff)
+		if err != nil {
+			return nil, fmt.Errorf("clean: %s on %s: %w", CategoryStale, p.Provider.Name(), err)
+		}
+		for _, plan := range plans {
+			planned = append(planned, PlannedDeletion{provider: p, Plan: plan})
+		}
+	}
+	return planned, nil
+}
+
+// planStaleSessions walks every project under the provider,
+// reads each session summary, and produces a per-session
+// DeletePlan for any session whose LastActive predates the
+// cutoff. We use summaries (not full conversations) because
+// the timestamp is already on the SessionSummary; reading
+// the full session would be wasteful when stale-detection
+// only needs one date field.
+//
+// The function is symmetric with planAbandonedSessions but
+// reads less per session, so it scales much better. On a
+// machine with hundreds of sessions, stale runs in
+// listing-time rather than parse-time.
+func planStaleSessions(p *providerEntry, cleaner contracts.Cleaner, cutoff time.Time) ([]contracts.DeletePlan, error) {
+	projects, err := p.Provider.ListProjects(p.FS)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var plans []contracts.DeletePlan
+	for _, project := range projects {
+		summaries, err := p.Provider.ListSessions(p.FS, project.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, summary := range summaries {
+			if summary.LastActive.IsZero() {
+				continue
+			}
+			if !summary.LastActive.Before(cutoff) {
 				continue
 			}
 			plan, err := cleaner.PlanDelete(p.FS, summary.ID)

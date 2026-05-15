@@ -398,12 +398,148 @@ func (readOnlyFake) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversat
 	return contracts.Conversation{}, nil
 }
 
-// fixedClock returns a time the test can pin so retention
-// math is deterministic.
-func fixedClock() time.Time {
-	return time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+// TestPlanCleanupStale_picksOnlyOldSessions is the happy
+// path for by-age cleanup. Two sessions: one with
+// LastActive 90 days ago, one with LastActive yesterday.
+// With --older-than=30d, only the old one should produce a
+// plan. Pinning the threshold and the timestamps directly
+// keeps the math obvious.
+func TestPlanCleanupStale_picksOnlyOldSessions(t *testing.T) {
+	now := time.Now()
+	old := now.Add(-90 * 24 * time.Hour)
+	recent := now.Add(-1 * 24 * time.Hour)
+	fake := &cleanerFake{
+		name:     "claude",
+		projects: []contracts.Project{{ID: "p1"}},
+		sessions: map[contracts.ProjectID][]contracts.SessionSummary{
+			"p1": {
+				{ID: "old", Project: "p1", LastActive: old},
+				{ID: "recent", Project: "p1", LastActive: recent},
+			},
+		},
+		plans: map[contracts.SessionID]contracts.DeletePlan{
+			"old":    {SessionID: "old", Items: []contracts.DeleteItem{{Path: "old.jsonl"}}},
+			"recent": {SessionID: "recent", Items: []contracts.DeleteItem{{Path: "recent.jsonl"}}},
+		},
+	}
+	a, _ := newCleanTestApp(t, fake)
+
+	planned, err := a.PlanCleanupStale(30*24*time.Hour, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(planned) != 1 {
+		t.Fatalf("planned = %d, want 1 (only the old session is stale)", len(planned))
+	}
+	if planned[0].Plan.SessionID != "old" {
+		t.Errorf("plan session id = %q, want old", planned[0].Plan.SessionID)
+	}
 }
 
-// Use fixedClock so the linter does not complain about an
-// unused declaration when we adjust the tests above.
-var _ = fixedClock
+// TestPlanCleanupStale_skipsZeroTimestamps confirms the
+// safety rule. A session whose LastActive is the zero value
+// (the adapter could not extract an end time, common on
+// hand-edited fixtures and very old sessions) must NOT be
+// flagged as stale. Treating "unknown" as "infinitely old"
+// would surprise the user the first time it deleted real
+// data.
+func TestPlanCleanupStale_skipsZeroTimestamps(t *testing.T) {
+	fake := &cleanerFake{
+		name:     "claude",
+		projects: []contracts.Project{{ID: "p1"}},
+		sessions: map[contracts.ProjectID][]contracts.SessionSummary{
+			"p1": {{ID: "no-ts", Project: "p1"}},
+		},
+		plans: map[contracts.SessionID]contracts.DeletePlan{
+			"no-ts": {SessionID: "no-ts", Items: []contracts.DeleteItem{{Path: "no-ts.jsonl"}}},
+		},
+	}
+	a, _ := newCleanTestApp(t, fake)
+
+	planned, err := a.PlanCleanupStale(30*24*time.Hour, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(planned) != 0 {
+		t.Errorf("planned = %d, want 0 (zero timestamps must not count as stale)", len(planned))
+	}
+}
+
+// TestPlanCleanupStale_rejectsTooSmallThreshold pins the
+// minimum-age guard. A 0-duration or sub-day threshold
+// would mark every session as stale, which is too
+// destructive to expose through a numeric off-by-one.
+func TestPlanCleanupStale_rejectsTooSmallThreshold(t *testing.T) {
+	a, _ := newCleanTestApp(t, &cleanerFake{name: "claude"})
+	if _, err := a.PlanCleanupStale(0, ""); err == nil {
+		t.Error("expected an error for an --older-than of 0")
+	}
+	if _, err := a.PlanCleanupStale(time.Hour, ""); err == nil {
+		t.Error("expected an error for a sub-day --older-than value")
+	}
+}
+
+// TestPlanCleanupStale_filtersByProvider mirrors the
+// provider-name behaviour of PlanCleanup. Two cleaner-fakes,
+// both with stale sessions, but only the named one should
+// contribute plans.
+func TestPlanCleanupStale_filtersByProvider(t *testing.T) {
+	old := time.Now().Add(-90 * 24 * time.Hour)
+	claudeFake := &cleanerFake{
+		name:     "claude",
+		projects: []contracts.Project{{ID: "p1"}},
+		sessions: map[contracts.ProjectID][]contracts.SessionSummary{
+			"p1": {{ID: "claude-old", Project: "p1", LastActive: old}},
+		},
+		plans: map[contracts.SessionID]contracts.DeletePlan{
+			"claude-old": {SessionID: "claude-old", Items: []contracts.DeleteItem{{Path: "x"}}},
+		},
+	}
+	copilotFake := &cleanerFake{
+		name:     "copilot",
+		projects: []contracts.Project{{ID: "p2"}},
+		sessions: map[contracts.ProjectID][]contracts.SessionSummary{
+			"p2": {{ID: "copilot-old", Project: "p2", LastActive: old}},
+		},
+		plans: map[contracts.SessionID]contracts.DeletePlan{
+			"copilot-old": {SessionID: "copilot-old", Items: []contracts.DeleteItem{{Path: "y"}}},
+		},
+	}
+	a := &App{
+		settings:  config.Defaults(),
+		locations: paths.Locations{TrashDir: t.TempDir()},
+		providers: []*providerEntry{
+			{Provider: claudeFake, Root: t.TempDir()},
+			{Provider: copilotFake, Root: t.TempDir()},
+		},
+	}
+
+	planned, err := a.PlanCleanupStale(30*24*time.Hour, "copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(planned) != 1 || planned[0].Plan.SessionID != "copilot-old" {
+		t.Errorf("planned = %+v, want one entry for copilot-old", planned)
+	}
+}
+
+// TestPlanCleanupStale_skipsNonCleanerProvider confirms
+// the read-only provider behaviour. A provider that does
+// not implement contracts.Cleaner is silently skipped, the
+// same way PlanCleanup handles it.
+func TestPlanCleanupStale_skipsNonCleanerProvider(t *testing.T) {
+	a := &App{
+		settings:  config.Defaults(),
+		locations: paths.Locations{TrashDir: t.TempDir()},
+		providers: []*providerEntry{
+			{Provider: &readOnlyFake{}, Root: t.TempDir()},
+		},
+	}
+	planned, err := a.PlanCleanupStale(30*24*time.Hour, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(planned) != 0 {
+		t.Errorf("planned = %d, want 0 for a read-only provider", len(planned))
+	}
+}
