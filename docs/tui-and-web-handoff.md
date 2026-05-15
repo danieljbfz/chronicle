@@ -17,26 +17,40 @@ disk) → `cmd/chronicle/` (the CLI binary). Every new surface you
 add belongs at the entrypoint layer, on top of `composition.App`,
 not inside the layers below it.
 
-Three adapters ship today. The `claude` adapter reads
-`~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`. The
-`copilotchat` adapter reads VS Code's `workspaceStorage/<hash>/
-chatSessions/` and the parallel `globalStorage/
-emptyWindowChatSessions/`. The `copilotagent` adapter reads
-`~/.copilot/session-state/<sessionId>/events.jsonl`, which is what
-the `@github/copilot-sdk` runtime writes. The two Copilot adapters
-are distinct because the data has zero overlap on disk and the two
-products are different. Do not collapse them.
+Three adapters ship today.
+
+| Adapter | Reads from | Storage shape |
+|---|---|---|
+| `claude` | `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl` | The file is one JSONL record per turn, with each record carrying the role, the content blocks, and the metadata that describes them. |
+| `copilotchat` | `workspaceStorage/<hash>/chatSessions/` and `globalStorage/emptyWindowChatSessions/` under the VS Code user directory | The file is an event log. The first line is a full snapshot of the session, and every later line is a small patch that mutates the snapshot in place. |
+| `copilotagent` | `~/.copilot/session-state/<sessionId>/events.jsonl` | Each line is a typed event envelope written by the `@github/copilot-sdk` runtime, with a `type` field and a `data` payload whose shape depends on the type. |
+
+The two Copilot adapters are distinct because the data has zero
+overlap on disk and the two products are different. Do not collapse
+them.
 
 The composition layer exposes a small, stable API. The methods you
-will rely on are `Listings`, `Search`, `Stats` (with `StatsOptions`
-including the by-model breakdown), `Doctor`, `ReadSession`,
-`Resume`, `PlanCleanup`, `ExecuteCleanup`, `TrashList`,
-`TrashRestore`, `TrashEmpty`, the memory and global-config helpers,
-and the bulk-export path. Read the method signatures and
-documentation in `composition/` before touching anything. None of
-those need to change for either presentation layer. If you find
-yourself wanting to change them, surface that thought to the user
-before you reach for the editor.
+will rely on:
+
+| Method | What you use it for |
+|---|---|
+| `Listings` | This is the master session list. It walks every provider, collects one `SessionListing` per session, and sorts the results so the most recently active session is at the top. |
+| `Search` | This finds sessions whose content matches a substring. The result carries the matching sessions together with the snippets that surround each match. Pass `SearchOptions.Provider` to narrow the search to one adapter. |
+| `Stats` | This is the one-screen summary the `chronicle stats` command renders. The result has the totals, the per-provider rows, the top-N projects, and the by-model breakdown. |
+| `Doctor` | This is the per-provider health report. Each `ProviderHealth` value carries the root directory, the detected version, the fingerprint, whether the root was reachable, the session count, and any warnings the adapter produced along the way. |
+| `ReadSession` | This loads one full conversation by id. The export, copy, and resume paths all start here. |
+| `Resume` | This tells the caller how to relaunch a session in its original tool. The result has the argv to run and the working directory to run it from. |
+| `PlanCleanup`, `ExecuteCleanup` | `PlanCleanup` walks the providers and builds the dry-run plan for one or more cleanup categories without touching disk. `ExecuteCleanup` takes that plan and actually moves the items into the trash. The CLI's `--apply` flag is what gates the second call. |
+| `TrashList`, `TrashRestore`, `TrashEmpty` | These three drive the trash subsystem. `TrashList` reads the manifests and returns one entry per trashed item. `TrashRestore` puts an entry back at its original location. `TrashEmpty` purges entries older than the retention window from the user's config. |
+| `ListMemories`, `ReadMemory`, `EditMemoryPath`, `CleanProjectMemory` | These four cover the per-project memory surface. Only the Claude adapter implements it today, so a call against a Copilot-only install comes back empty rather than erroring. |
+| `ListGlobalMemory`, `CleanGlobalMemory` | These two cover the user-global memory surface, which Claude exposes through `~/.claude/CLAUDE.md`. The Copilot adapters do not have anything equivalent yet. |
+| `ListConfigProjectEntries`, `CleanConfigProjects` | These two find stale entries inside Claude's global config file (`~/.claude.json`) and remove the ones whose project directory has gone. |
+| `BulkExport` | This writes one Markdown transcript per session inside a project, all in one call, to a directory the caller chooses. |
+
+Read the method signatures and documentation in `composition/`
+before touching anything. None of those need to change for either
+presentation layer. If you find yourself wanting to change them,
+surface that thought to the user before you reach for the editor.
 
 The TUI and web frontend are presentation layers. They consume the
 composition API, they do not modify it. The only legitimate reason
@@ -74,34 +88,42 @@ fields to existing return values over inventing a new method.
 The codebase has a voice. Every reader who opens any file at any
 time should hear the same voice. The rules that matter most:
 
-- Write **complete sentences** with explicit subjects, verbs, and
-  articles. "Returns the value" is wrong for prose. "The function
-  returns the value" or "Returns the resolved value when the
-  consensus rule produced one" is right. PEP-257-style imperative
-  one-liners are fine inside docstrings, because the actor there
-  is the function itself.
-- No semicolons in prose. Use periods. Long sentences break into
-  two. The ban applies to docstrings, comments, error messages,
-  Markdown docs, commit messages, and any chat reply. It does not
-  apply to Go code, SQL, or other languages where the semicolon
-  is syntax.
-- Em-dashes are louder than parentheses. Parentheses mark a side
-  note the reader can skip. Em-dashes mark an interruption the
-  reader must register. Write `—` in prose, never `--`. Three
-  em-dashes in one paragraph means the paragraph is doing too
-  much. Split it.
-- No AI-flavoured filler. Cut "It's worth noting that", "Let me
-  walk you through", "In summary", and the rest. Start with the
-  substance.
-- Spell out referents. When you mention a variable, a column, an
-  endpoint, or a file path, give the reader enough context to know
-  what the thing is. Quote it with backticks and describe its role
-  in the sentence.
-- Error messages are user interface. Include the value that caused
-  the problem, the operation that failed, and the next step the
-  reader can take. "Invalid input" is unacceptable. "The value
-  `'2026-13-45'` passed to `--due-by` is not an ISO-format date.
-  The parser reported `month must be in 1..12`" is the bar.
+- **Complete sentences with explicit subjects, verbs, and
+  articles.** Prose that reads "Returns the value" is wrong
+  because the actor is missing. The right shape spells the actor
+  out, as in "The function returns the resolved value when the
+  consensus rule produced one". PEP-257-style imperative
+  one-liners are fine inside Go docstrings, because the actor
+  there is the function itself.
+- **No semicolons in prose.** Use periods. A long sentence with
+  a semicolon nearly always reads better as two short sentences.
+  The ban covers docstrings, comments, error messages, Markdown
+  docs, commit messages, and any chat reply. It does not apply
+  to code, where the semicolon is syntax.
+- **Em-dashes are louder than parentheses.** Parentheses mark a
+  side note the reader can skip without losing the sentence, and
+  the voice steps offstage briefly. Em-dashes mark an
+  interruption the reader must register, and the voice raises
+  briefly. The test is to read the sentence aloud and notice
+  which way the voice moves.
+- **Use a real em-dash, never `--`, in prose.** The two-hyphen
+  form is for shell examples. If three em-dashes appear in one
+  paragraph, the paragraph is doing too much. Split it into two.
+- **Cut AI-flavoured filler.** Phrases like "It's worth noting
+  that", "Let me walk you through", and "In summary" add nothing
+  and signal generated prose. Start with the substance instead.
+- **Spell out the referents.** When the comment names a variable,
+  a column, an endpoint, or a file path, quote the name with
+  backticks and add a clause that describes its role in the
+  sentence. The reader should not need a second screen open to
+  understand the comment.
+
+Error messages are part of the user interface, so every message
+should include the value that caused the problem, the operation
+that failed, and the next step the reader can take.
+
+- Wrong: `Invalid input.`
+- Right: `The value '2026-13-45' passed to --due-by is not an ISO-format date in the form YYYY-MM-DD. The underlying parser reported "month must be in 1..12".`
 
 The codebase's existing comments are your reference. When in
 doubt, open `contracts/conversation.go` or
@@ -110,17 +132,21 @@ that voice. Do not invent a new one.
 
 ## How to code
 
-- The dependency graph is sacred. Imports flow downhill only. A
-  presentation layer never imports an adapter directly. It goes
-  through `composition.App`. If you ever find yourself reaching
-  for an adapter package from `cmd/chronicle/tui/`, stop and
-  rethink.
-- Optional capabilities live behind type assertions. The base
-  `contracts.Provider` interface is small. Cleanup, memory,
-  resume, and global config are optional capabilities each
-  adapter opts into. The presentation layers discover those
-  capabilities the same way the CLI does: through `composition`,
-  not by reaching into adapters.
+- The dependency graph is strict, and you should treat it as a
+  hard rule rather than a guideline. Imports flow downhill only.
+  A presentation layer never imports an adapter directly, because
+  every read and every action the presentation layer wants to
+  perform already has a method on `composition.App`. If you find
+  yourself reaching for an adapter package from inside
+  `cmd/chronicle/tui/`, stop and look for the composition method
+  you missed.
+- The optional capabilities are reached through type assertions.
+  The base `contracts.Provider` interface is small on purpose.
+  Cleanup, memory, resume, and global config are each their own
+  optional interface that an adapter opts into when it supports
+  the surface. The presentation layers discover those capabilities
+  the same way the CLI does, by asking composition rather than
+  by reaching into the adapter packages.
 - Errors are typed. Every adapter has its own `Error` value with
   `Op`, `Path`, and `Err` fields, and a constructor `newError`.
   Wrap at the public boundary. Return the unwrapped sentinel
@@ -144,12 +170,14 @@ that voice. Do not invent a new one.
 
 ## How to work
 
-Act like a principal engineer with a small team behind them. The
-user does not want shortcuts. The user does not want
-brittle hot-fixes. The user does not want a refactor that solves
-the symptom without identifying the cause. The user wants stable,
-elegant, clean, consistent, as-perfect-as-possible work, and is
-willing to spend time on multiple review passes to get there.
+Act like a principal engineer with years of experience, the kind
+who could call on a few equally-senior peers when a second
+opinion would help. The user does not want shortcuts. The user
+does not want brittle hot-fixes. The user does not want a
+refactor that papers over the symptom without finding the cause.
+The user wants stable, elegant, clean, consistent,
+as-perfect-as-possible work, and is willing to spend time on
+multiple review passes to get there.
 
 The shape of the work is **research, plan, execute, review,
 repeat**.
@@ -200,42 +228,44 @@ senior reviewer at Stripe or Anthropic flag this."
 
 ### 1. The TUI
 
-A terminal UI for browsing sessions, reading transcripts, and
-running the cleanup flows the CLI already supports. The user opens
-chronicle without arguments and lands in the TUI by default. The
-TUI is the friendly face of chronicle for everyday use. The CLI
-remains the scripting face.
+The first piece is a terminal UI that lets the user browse
+sessions, read transcripts, and run the cleanup flows the CLI
+already supports. When the user runs `chronicle` with no
+arguments, they should land in the TUI by default. The TUI
+becomes the everyday face of chronicle for interactive use, and
+the CLI keeps being the face for scripts.
 
-The TUI's job is presentation. Every screen reads from the
-composition API. Every action the user takes (delete a session,
-restore from trash, export to Markdown, resume) calls a
-composition method that already exists. The TUI does not invent a
-new domain model, it surfaces the existing one.
+The TUI's job is presentation, and only presentation. Every
+screen reads from the composition API. Every action the user
+takes from inside the TUI — deleting a session, restoring from
+the trash, exporting to Markdown, resuming — calls a composition
+method that already exists. The TUI does not invent a new domain
+model. It surfaces the existing one in a more interactive shape.
 
-Recommended approach: build it on
-[Bubble Tea](https://github.com/charmbracelet/bubbletea) with
-[lipgloss](https://github.com/charmbracelet/lipgloss) for styling
-and [bubbles](https://github.com/charmbracelet/bubbles) for the
-ready-made components (list, viewport, textinput, table). These
-are the de-facto-standard Go TUI libraries in 2026 and the
-community has built dozens of high-quality apps on them. Read at
-least one well-regarded Bubble Tea app end to end before you write
-your first screen. `glow` and `gh-dash` are good references.
+Recommended stack:
 
-Open questions to resolve with the user **before** building:
+| Library | Role |
+|---|---|
+| [Bubble Tea](https://github.com/charmbracelet/bubbletea) | This is the runtime that wraps every screen. It uses the Elm pattern, so every screen you write is a `tea.Model` value with its own `Init`, `Update`, and `View` methods. |
+| [lipgloss](https://github.com/charmbracelet/lipgloss) | We use this for the styling. It gives us a clean way to set colours, borders, padding, and layout without scattering ANSI escape codes through the rendering code. |
+| [bubbles](https://github.com/charmbracelet/bubbles) | This package contains the ready-made components we compose into each screen. The ones we will reach for first are the list, the viewport, the text input, the table, the spinner, and the help footer. |
 
-- Should the TUI be the default behaviour of `chronicle` with no
-  arguments, or a separate subcommand like `chronicle tui`. The
-  feature-roadmap leans toward "default". Confirm before you
-  commit.
-- The screen list — a session list, a transcript reader, a stats
-  view, a doctor view, a trash view, a memory view. The first
-  question is what set of screens ships in v1.
-- Keyboard model. The user already lives in Vim. Pick a binding
-  set that respects that without becoming inaccessible to users
-  who do not.
-- Theme. One default, or follow the terminal's palette. Be honest
-  about how much of this is worth doing in v1.
+These three libraries are the de facto standard for Go terminal
+applications in 2026, and the community has built dozens of polished
+apps on top of them. Before you write your first screen, read at
+least one well-regarded Bubble Tea app from start to finish so you
+have a working mental model of how the pieces fit together. The
+`glow` Markdown reader and the `gh-dash` GitHub dashboard are both
+good references.
+
+Open questions to resolve **before** building:
+
+| Question | Default leaning |
+|---|---|
+| Is the TUI the behaviour of `chronicle` with no arguments, or a separate `chronicle tui` subcommand? | The TUI should be the default behaviour when the user runs `chronicle` with no arguments. The feature-roadmap leans this way, but confirm before you commit to the change. |
+| Which screens ship in v1? | The first cut is the session list, the transcript reader, the stats view, the doctor view, the trash view, and the memory view. Confirm the set before you build any of them. |
+| Which keyboard model should the TUI use? | The default bindings should be Vim-style for the keys that have an obvious Vim equivalent, with arrow keys and Enter as fallbacks so users who do not live in Vim can still drive every screen. |
+| Should the TUI ship with a theme system? | The default rendering should follow the terminal's own palette, and one opt-in dark theme is enough variety for v1. |
 
 ### 2. The web frontend
 
@@ -246,26 +276,26 @@ data through a friendlier interface. The web app does not duplicate
 the cleanup or memory-edit flows in v1, because the destructive
 surface is harder to make safe over HTTP.
 
-Recommended approach: a small Go HTTP server in `cmd/chronicle-web/`,
-templ for templates, HTMX for interactivity, and Tailwind for
-styling. The stack is well-understood in 2026 and matches the
-project's preference for boring, server-rendered tools that age
-well. Avoid a single-page-app architecture and a separate frontend
-build, because chronicle is a single-binary tool and the web app
-should not break that property.
+Recommended stack:
 
-Open questions to resolve before building:
+| Piece | Choice |
+|---|---|
+| Binary | We add a new `cmd/chronicle-web/` directory next to the existing `cmd/chronicle/`. Each binary does one thing, and the project has followed that rule from the start. |
+| Templates | We use [templ](https://github.com/a-h/templ). It gives us type-checked Go templates that compile alongside the rest of the source, so the Go compiler catches a typo in a template the same way it catches a typo in regular code. |
+| Interactivity | We use [HTMX](https://htmx.org/). The server renders small HTML fragments, the browser swaps them into the page, and we never need a separate JavaScript build to keep the UI lively. |
+| Styling | We use Tailwind. The binary embeds a pre-built CSS file, so the user does not need Node or any other JavaScript toolchain on their machine to run the web app. |
 
-- Auth model. The simplest answer is "the server only binds to
-  127.0.0.1 and the user is whoever is on the local machine".
-  Anything more than that is a real design conversation.
-- Sharing. Is the share scope "anyone who has the URL" or
-  "anyone authenticated against my GitHub". The simplest answer
-  is "the share is a local URL the user copies into Slack or
-  email, and the recipient hits the same machine over Tailscale
-  or ngrok". Confirm before you build.
-- What renders. Probably the same five views as the TUI, plus a
-  permalink for one rendered Markdown transcript.
+Avoid a single-page-app architecture and a separate frontend
+build. Chronicle is a single-binary tool, and the web app should
+not break that property.
+
+Open questions to resolve **before** building:
+
+| Question | Default leaning |
+|---|---|
+| Which auth model should the server use? | The server should bind to `127.0.0.1` only and trust whoever is logged in to the local machine. Anything beyond that is a real design conversation, and the user is the one who decides how it goes. |
+| What is the sharing scope? | A share is a local URL the user copies into Slack or email, and the recipient reaches the same machine over Tailscale, ngrok, or an SSH tunnel. The chronicle binary does not host any public surface itself. |
+| Which views render? | The web app renders the same set of views as the TUI v1, plus a permalink route for one rendered Markdown transcript so the user can link a teammate to a single conversation. |
 
 ## Verification bar
 
