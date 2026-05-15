@@ -118,6 +118,10 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 		return TrashEntry{}, errors.New("trash: planned deletion has no provider")
 	}
 
+	// Step 1: prepare the trash entry. We allocate the new
+	// entry id, create its directory tree, and seed the
+	// in-memory TrashEntry with the metadata we already know
+	// from the plan and the provider.
 	entryID, err := newTrashEntryID(time.Now().UTC())
 	if err != nil {
 		return TrashEntry{}, fmt.Errorf("trash: generate id: %w", err)
@@ -139,8 +143,10 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 		ProviderRoot:  planned.provider.Root,
 	}
 
-	// Step 1: move each item. We track the moves we have done so
-	// we can roll them back if a later item fails.
+	// Step 2: move each item from its original location into
+	// the trash entry. We track the moves we have done so a
+	// later failure can roll them back, leaving the user's
+	// data exactly where it started.
 	var completed []completedMove
 
 	for _, item := range planned.plan.Items {
@@ -179,7 +185,7 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 		entry.SizeBytes += item.SizeBytes
 	}
 
-	// Step 2: write the manifest. If this fails, roll the moves
+	// Step 3: write the manifest. If this fails, roll the moves
 	// back so the trash directory does not contain an entry
 	// without a manifest (which would be unrestorable).
 	if err := writeManifest(entryDir, entry); err != nil {

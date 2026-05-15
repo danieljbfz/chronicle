@@ -74,16 +74,29 @@ func (a *App) BulkExport(projectID contracts.ProjectID, opts BulkExportOptions, 
 		return 0, errors.New("export bulk: callback is required")
 	}
 
+	// Step 1: resolve which provider owns the project. The
+	// helper handles the disambiguation when more than one
+	// provider knows the same id and surfaces a sentinel
+	// error the CLI can translate into a clear message.
 	provider, err := a.findProjectProvider(projectID, opts.Provider)
 	if err != nil {
 		return 0, err
 	}
 
+	// Step 2: list every session under the project. We only
+	// need summaries here, not full conversations, so the
+	// listing cost is the same as `chronicle list` against
+	// the same project.
 	summaries, err := provider.Provider.ListSessions(provider.FS, projectID)
 	if err != nil {
 		return 0, fmt.Errorf("export bulk: list sessions: %w", err)
 	}
 
+	// Step 3: stream each session through the read,
+	// filter, and render pipeline, then hand the result to
+	// the callback. The loop returns at the first callback
+	// error so a failing destination aborts the bulk
+	// operation instead of silently dropping later sessions.
 	filterOpts := steps.FilterOptions{
 		HideTools:    opts.HideTools,
 		HideThinking: opts.HideThinking,

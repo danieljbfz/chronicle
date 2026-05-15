@@ -68,6 +68,12 @@ func readSessionFile(root fs.FS, sessionFile string, source contracts.StorageVer
 // anything. We do it anyway as a safety net, in case a future Claude
 // release writes records out of order for performance reasons.
 func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conversation, error) {
+	// Step 1: read every line of JSONL into a small rawRecord
+	// struct that grabs only the fields we always need. The
+	// message body stays as raw JSON for now because we do not
+	// yet know what shape to expect. A line that is not valid
+	// JSON gets skipped so one corrupted line does not lose
+	// every later message in the file.
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), scannerBufferMax)
 
@@ -84,6 +90,14 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 		return contracts.Conversation{}, err
 	}
 
+	// Step 2: walk the records in order and turn each one into
+	// a Message. User and assistant records become real
+	// messages. A handful of internal Claude records (system
+	// notes, attachments, queue operations, and a few others)
+	// are not conversation a person reads, so we drop them on
+	// the floor. Records of a type chronicle does not recognise
+	// at all become a meta message that wraps an UnknownBlock
+	// so the renderer can surface them.
 	var (
 		messages  []contracts.Message
 		sessionID contracts.SessionID
@@ -139,6 +153,11 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 		}
 	}
 
+	// Step 3: sort the messages by timestamp. Claude writes
+	// them in chronological order today, so the sort almost
+	// never reorders anything. We do it anyway as a safety
+	// net, in case a future Claude release writes records out
+	// of order for performance reasons.
 	sort.SliceStable(messages, func(i, j int) bool {
 		return messages[i].Timestamp.Before(messages[j].Timestamp)
 	})
