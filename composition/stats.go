@@ -14,9 +14,11 @@ import (
 // projects. The CLI exposes both fields as flags.
 type StatsOptions struct {
 	// Provider, when non-empty, restricts the summary to one
-	// adapter (such as "claude" or "copilot"). Most users
-	// have a few providers and want the full picture, so the
-	// empty string is the right default.
+	// adapter by its registered name (such as "claude",
+	// "copilot-chat", or "copilot-agent"). Most users have
+	// a few providers installed and want the full picture
+	// across all of them, so the empty string is the right
+	// default.
 	Provider string
 
 	// TopN sets how many projects appear in the top-projects

@@ -178,12 +178,12 @@ func collectFingerprintInputs(r io.Reader) ([]steps.FingerprintInput, bool, erro
 			if err == io.EOF {
 				break
 			}
-			// The stream contains a malformed record from this
-			// point forward. We stop reading and return the
-			// fingerprint built from the records that decoded
-			// cleanly, so the caller can still decide whether
-			// the partial result is enough to identify the
-			// storage version.
+			// We hit a record that will not decode. Rather than
+			// give up entirely, we stop here and return the
+			// fingerprint we built from the records that did
+			// decode. The caller can then decide whether that
+			// partial result is enough to identify the storage
+			// version.
 			break
 		}
 		parseable = true

@@ -48,15 +48,15 @@ type ToolUseBlock struct {
 	CallID string
 }
 
-// ToolResultBlock represents the value that came back from a
-// previous ToolUseBlock after the tool finished running. The
-// CallID links the result back to the originating call, the
-// IsError flag tells us whether the tool reported a failure,
-// and the Output field carries the textual content. We
-// flatten the output to a single string here, because the
-// upstream tool can store it either as a bare string or as
-// an array of typed parts, and the rest of chronicle does
-// not need to care about the difference.
+// ToolResultBlock carries what the tool produced when it ran
+// in response to a previous ToolUseBlock. The CallID links
+// the result back to that originating call, the IsError flag
+// tells us whether the tool reported a failure, and the
+// Output field carries the textual content. We flatten the
+// output to a single string here, because the upstream tool
+// can store it either as a bare string or as an array of
+// typed parts, and the rest of chronicle does not need to
+// care about the difference.
 type ToolResultBlock struct {
 	CallID  string
 	Output  string

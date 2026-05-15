@@ -179,12 +179,13 @@ func collectFingerprintInputs(r io.Reader) ([]steps.FingerprintInput, bool, erro
 	var inputs []steps.FingerprintInput
 	parseable := false
 	for scanner.Scan() && len(inputs) < maxFingerprintRecords {
-		// We decode each line into a map[string]json.RawMessage so
-		// we can read the type field and the set of top-level keys
-		// without committing to a struct shape. The json.RawMessage
-		// type tells the decoder to leave each value as raw bytes
-		// for the moment, which is useful when we know in advance
-		// that we will need only some of the fields inside.
+		// We decode each line into a map[string]json.RawMessage
+		// so we can read the type field and the set of top-level
+		// keys without committing to a struct shape. The
+		// json.RawMessage type tells the decoder to leave each
+		// value as raw bytes, which is enough for what we do
+		// next: read the type field and check which top-level
+		// keys are present.
 		var record map[string]json.RawMessage
 		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
 			continue

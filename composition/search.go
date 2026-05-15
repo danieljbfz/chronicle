@@ -13,11 +13,12 @@ import (
 // the common case.
 type SearchOptions struct {
 	// Provider, when non-empty, restricts the search to one
-	// adapter ("claude", "copilot", and so on). The CLI
-	// exposes this through `--provider`. Most users have a
-	// few hundred sessions across two tools and want every
-	// match by default, so the empty value is the right
-	// shape for the common case.
+	// adapter by its registered name ("claude",
+	// "copilot-chat", or "copilot-agent"). The CLI exposes
+	// this through `--provider`. Most users have a few
+	// hundred sessions across the registered tools and
+	// want every match by default, so the empty value is
+	// the right shape for the common case.
 	Provider string
 
 	// MaxSnippetsPerSession caps how many matches the

@@ -93,7 +93,8 @@ func (pd PlannedDeletion) ProviderRoot() string {
 //
 // Pass an empty Categories slice to get every category at once.
 // Pass a non-empty providerName to limit the result to one
-// tool, like "claude" or "copilot".
+// tool, named by its registered identifier ("claude",
+// "copilot-chat", or "copilot-agent").
 //
 // PlanCleanup is read-only. It walks the filesystem to find
 // matching sessions, but it never moves or deletes anything.
@@ -112,9 +113,10 @@ func (a *App) PlanCleanup(categories []CleanCategory, providerName string) ([]Pl
 		cleaner, ok := p.Provider.(contracts.Cleaner)
 		if !ok {
 			// This provider does not implement the Cleaner
-			// capability, so we skip it without any visible
-			// signal. The doctor view surfaces the gap when
-			// the user asks for a capability report.
+			// capability, so we quietly skip it and move on
+			// to the next one. The doctor view is where the
+			// user finds out which providers expose the
+			// clean command and which do not.
 			continue
 		}
 		for _, category := range categories {

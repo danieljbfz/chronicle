@@ -49,9 +49,12 @@ type TrashEntry struct {
 	// TrashedAt is when the move happened, in UTC.
 	TrashedAt time.Time `json:"trashed_at"`
 
-	// Provider is the adapter name that owned the trashed data,
-	// like "claude" or "copilot". We need this on restore to
-	// pick the right provider root.
+	// Provider is the name of the adapter that owned the
+	// trashed data (e.g., "claude", "copilot-chat", or
+	// "copilot-agent"). When the user later runs
+	// `chronicle trash restore`, this field tells chronicle
+	// which adapter the data belongs to, so the files can
+	// go back to their original locations.
 	Provider string `json:"provider"`
 
 	// SessionID is the session this entry came from, when one
@@ -227,10 +230,9 @@ func (a *App) TrashList() ([]TrashEntry, error) {
 		entry, err := readManifest(filepath.Join(a.locations.TrashDir, dirent.Name()))
 		if err != nil {
 			// We skip the entries that cannot be read. A future
-			// doctor view can surface these as warnings. For
-			// now the lister silently moves past them so the
-			// user still sees the entries that are intact and
-			// restorable.
+			// doctor view can surface these as warnings, but for
+			// now we move past them quietly so the user still
+			// gets the rest of the listing.
 			continue
 		}
 		out = append(out, entry)

@@ -121,8 +121,8 @@ type GlobalMemoryStore interface {
 	// PlanDeleteGlobalMemory returns a deletion plan for
 	// every user-global memory file the provider exposes.
 	// The plan goes through chronicle's normal trash flow,
-	// so the user can restore the files if the cleanup
-	// turns out to have been a mistake.
+	// so the user can restore the files if they later
+	// regret the cleanup.
 	PlanDeleteGlobalMemory(root fs.FS) (DeletePlan, error)
 }
 
