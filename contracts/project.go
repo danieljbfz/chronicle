@@ -26,14 +26,14 @@ type Project struct {
 // show an accurate disk-reclaimable estimate without re-walking the
 // tree at confirmation time.
 //
-// Model is the model identifier each adapter pulls from
-// its native session metadata. The exact shape varies per
-// provider: Claude records per-message models and the
-// adapter reports the most-frequent value, copilot-chat
-// records a per-session selection on inputState, and
-// copilot-agent records a single selectedModel in its
-// session.start event. An adapter that cannot determine
-// the model leaves the field empty, and the stats
+// Model is the model identifier each adapter pulls from its
+// native session metadata. The exact shape varies per
+// provider. Claude records per-message models, and the
+// adapter reports the most-frequent value. The copilot-chat
+// adapter records a per-session selection on inputState.
+// The copilot-agent adapter records a single selectedModel
+// in its session.start event. An adapter that cannot
+// determine the model leaves the field empty, and the stats
 // renderer groups empty values under "(unknown)".
 type SessionSummary struct {
 	ID           SessionID

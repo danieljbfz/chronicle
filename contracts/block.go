@@ -2,11 +2,12 @@ package contracts
 
 import "encoding/json"
 
-// Block is one piece of content inside a Message. A single message can
-// hold any mix of these in any order, and the renderer walks the slice
-// in order to produce the final output. When a piece of code needs to
-// react differently to each kind of block, it uses a type switch — the
-// Markdown renderer in the steps package is a good example.
+// Block is one piece of content inside a Message. A single
+// message can hold any mix of these in any order, and the
+// renderer walks the slice to produce the final output. When
+// a piece of code needs to react differently to each kind of
+// block, it uses a type switch. The Markdown renderer in the
+// steps package is a good example of that pattern in use.
 //
 // The interface is satisfied by an unexported method called blockMarker
 // that each concrete block declares with an empty body. The marker is

@@ -21,11 +21,12 @@ import "time"
 // is empty unless the workspace's filesystem path is also known.
 //
 // Model is the model identifier the adapter pulls from the
-// session's native metadata. Claude reports the most-frequent
-// per-message value. copilot-agent reports the single
-// session-level selectedModel. copilot-chat reports the
-// user's selected model when one is recorded. An adapter
-// that cannot determine the model leaves the field empty.
+// session's native metadata. The Claude adapter reports the
+// most-frequent per-message value. The copilot-agent adapter
+// reports the single session-level selectedModel. The
+// copilot-chat adapter reports the user's selected model
+// when one is recorded. An adapter that cannot determine the
+// model leaves the field empty.
 type Conversation struct {
 	SessionID    SessionID
 	Project      ProjectID
@@ -67,8 +68,8 @@ func (c Conversation) FirstUserPrompt() string {
 
 // IsAbandoned reports whether the session has zero real user
 // prompts. The cleanup feature uses this check to find the
-// sessions the user opened by accident, ran a command or two in,
-// and then never returned to.
+// abandoned sessions: the ones the user opened by accident,
+// fired a command or two, and then forgot about entirely.
 //
 // On the author's own machine, sessions like that account for
 // nearly one in five of every session file on disk. Each one takes

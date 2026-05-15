@@ -24,12 +24,11 @@
 // Each session JSONL is an event log, not a stream of
 // independent records like Claude's. The first line is a
 // full snapshot of the session at the moment it was last
-// saved. Every line after that is a tiny patch that
-// mutates the snapshot in place. Reading a session means
-// replaying every line in order to reconstruct the
-// current state. The eventlog.go file does that work, and
-// parse.go turns the reconstructed state into a
-// contracts.Conversation.
+// saved. Every line after that is a tiny patch that mutates
+// the snapshot in place. Reading a session means replaying
+// every line so the current state can be reconstructed. The
+// eventlog.go file does that work, and parse.go turns the
+// reconstructed state into a contracts.Conversation.
 //
 // This adapter does NOT cover the GitHub Copilot agent
 // runtime, which writes its own session state under

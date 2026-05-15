@@ -205,10 +205,10 @@ func decodeAssistantResponse(request map[string]any) []contracts.Block {
 		kind, hasKind := part["kind"].(string)
 
 		// MarkdownString values written without a kind field are
-		// the most common assistant content on long sessions. We
-		// recognize them by their presence of "value" without a
-		// "kind", which is the shape VS Code's MarkdownString
-		// serializes to.
+		// the most common assistant content on long sessions.
+		// We recognize them by the presence of "value" without
+		// a "kind", which is the shape VS Code produces when
+		// it serializes its MarkdownString.
 		if !hasKind || kind == "" {
 			text := decodeMarkdownPart(part)
 			if text != "" {

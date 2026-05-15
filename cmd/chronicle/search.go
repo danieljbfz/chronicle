@@ -30,8 +30,8 @@ import (
 // milliseconds. If a future install grows to thousands of
 // sessions, we will add either an errgroup fan-out or a
 // small index that the search consults instead of every
-// file. We will pick the right approach once we have a
-// real install to measure against.
+// file. We will pick the right approach once a real
+// install gives us the numbers to guide the choice.
 func newSearchCmd() *cobra.Command {
 	var (
 		providerFlag      string
