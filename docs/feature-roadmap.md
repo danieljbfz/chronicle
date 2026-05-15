@@ -62,17 +62,48 @@ Four categories, each defaulting to dry-run, each routing through the recoverabl
 - Provider-supplied defaults wherever a default would otherwise leak provider names into the CLI or composition layer.
 - Provider-agnostic config: `Providers map[string]ProviderConfig` keyed by adapter name, no typed Claude/Copilot fields.
 
-## Maybe still worth doing
+## Real coverage gaps surfaced by the December 2026 provider audit
 
-Small follow-ups that would round out the existing surface, listed by cost-to-value.
+See `docs/provider-surface.md` for the full analysis. These are the
+pieces that cleanly extend the existing architecture without
+re-opening any design questions.
+
+### Copilot CLI session surface (real coverage gap)
+
+The current Copilot adapter reads only the VS Code Chat side
+(`<vscode>/User/workspaceStorage/.../chatSessions/`). It does not see
+the Copilot CLI's session-state directory at `~/.copilot/session-state/`.
+Real session data on the working machine lives there today and chronicle
+is blind to it.
+
+The right architectural question is whether to extend the existing
+Copilot adapter to read both surfaces, or split into two adapters
+(`copilot-vscode` and `copilot-cli`). Resolving that is one focused
+research pass on the on-disk layout of the CLI sessions.
+
+**Cost: medium.** New parsing logic for the Copilot CLI's session
+schema, possibly a new adapter package.
+
+**Risk: low.** Read-only by default. Same architectural pattern as the
+existing adapter.
 
 ### `chronicle stats --by-model`
 
-The user's session JSONL files carry a `model` field. Sessions routed through MiniMax (or any other Anthropic-API-compatible backend) carry a different value than native Claude sessions. A `--by-model` breakdown would tell the user how their session count, message count, and disk usage split across models.
+The user's session JSONL files carry a `model` field. Sessions routed
+through MiniMax (or any other Anthropic-API-compatible backend) carry
+a different value than native Claude sessions. A `--by-model`
+breakdown would tell the user how their session count, message count,
+and disk usage split across models.
 
-**Cost: small.** Read the model field from each session summary (or from the first record of each session if summaries do not yet carry it). Aggregate alongside the existing per-provider rollup.
+The provider audit confirmed this is a uniform concept across both
+tools (every session knows what model served it), so the chronicle
+abstraction is just "a string the user might want to filter on" — a
+new field on `SessionSummary`, not a new capability interface.
 
-**Risk: none.** Read-only addition to an existing command.
+**Cost: small.** Add the field to `SessionSummary`, populate it in
+each adapter's parse path, render the breakdown in stats.
+
+**Risk: none.** Read-only addition.
 
 ## Maybe
 
@@ -143,20 +174,27 @@ Out of scope. Would require server-side state, accounts, the whole shebang. The 
 ## My recommended order
 
 The CLI tier (every "Ship now" and "Ship soon" item from earlier
-revisions of this document) is done. The remaining choices are about
-strategic direction, not tactical work:
+revisions of this document) is done. The provider-surface audit at
+`docs/provider-surface.md` revealed one real coverage gap and one
+small follow-up. The remaining choices are about strategic direction.
 
-1. **`chronicle stats --by-model`** if the user wants visibility into
-   their model split before any larger work. Small commit, real
-   information return.
-2. **TUI** if the user wants a presentation layer over the CLI. The
-   reason to build it now and not earlier is that the underlying
-   capability surface is stable: a TUI built today wraps a frozen
-   feature set rather than chasing a moving target.
-3. **Web frontend** if the goal is sharing rendered transcripts with
-   teammates without exporting first. Larger scope than TUI.
-4. **A third provider adapter** (Cursor, Antigravity) if the multi-
-   provider story is the next frontier. The optional-capability
+The recommended order:
+
+1. **Copilot CLI session surface.** This is a real coverage gap:
+   chronicle today sees only the VS Code Chat side of Copilot, not
+   the `~/.copilot/session-state/` side. Closing this is the most
+   provider-agnostic thing we can do because it brings Copilot's
+   coverage closer to Claude's.
+2. **`chronicle stats --by-model`.** Small, surfaces the
+   MiniMax-vs-Claude split, principled (it adds a field, not a
+   capability).
+3. **TUI** as the next big presentation layer over a now-stable
+   capability surface. A TUI built today wraps a frozen feature set
+   rather than chasing a moving target.
+4. **Web frontend** if sharing rendered transcripts with teammates
+   ever becomes the priority. Larger scope than TUI.
+5. **A third provider adapter** (Cursor, Antigravity) if the
+   multi-provider story is the next frontier. The optional-capability
    architecture is set up to make this additive: a new package under
    `adapters/`, one entry in `adapters/all.go`, no changes anywhere
    else.
