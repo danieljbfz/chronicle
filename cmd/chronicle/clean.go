@@ -40,7 +40,7 @@ or you run 'chronicle trash empty --force'.`,
 	cmd.AddCommand(newCleanAbandonedCmd())
 	cmd.AddCommand(newCleanOrphansCmd())
 	cmd.AddCommand(newCleanStaleCmd())
-	cmd.AddCommand(newCleanConfigProjectsCmd())
+	cmd.AddCommand(newCleanDanglingCmd())
 	return cmd
 }
 
