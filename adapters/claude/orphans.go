@@ -107,7 +107,7 @@ func scanPasteCacheOrphans(root fs.FS, plan *contracts.DeletePlan) {
 		if referenced[hash] {
 			continue
 		}
-		addItem(root, plan, path.Join(pasteCacheDir, entry.Name()), "orphaned paste-cache entry")
+		addItem(root, plan, path.Join(pasteCacheDir, entry.Name()), reasonOrphanPaste)
 	}
 }
 
@@ -175,7 +175,7 @@ func scanSecurityWarningOrphans(root fs.FS, plan *contracts.DeletePlan) {
 		if known[uuid] {
 			continue
 		}
-		addItem(root, plan, name, "orphaned security warning state")
+		addItem(root, plan, name, reasonOrphanWarning)
 	}
 }
 
@@ -206,7 +206,7 @@ func scanShellSnapshotOrphans(root fs.FS, plan *contracts.DeletePlan) {
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(names)))
 	for _, name := range names[shellSnapshotsKeepCount:] {
-		addItem(root, plan, path.Join(shellSnapshotsDir, name), "old shell snapshot")
+		addItem(root, plan, path.Join(shellSnapshotsDir, name), reasonOrphanShellSnap)
 	}
 }
 
@@ -241,6 +241,6 @@ func scanBackupOrphans(root fs.FS, plan *contracts.DeletePlan) {
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(names)))
 	for _, name := range names[backupsKeepCount:] {
-		addItem(root, plan, path.Join(backupsDir, name), "old configuration backup")
+		addItem(root, plan, path.Join(backupsDir, name), reasonOrphanBackup)
 	}
 }
