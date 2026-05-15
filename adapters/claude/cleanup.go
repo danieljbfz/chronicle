@@ -4,10 +4,19 @@ import (
 	"errors"
 	"io/fs"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/danieljbfz/chronicle/contracts"
 )
+
+// sessionUUIDPattern matches the canonical Claude session
+// identifier shape, which is a lowercase UUID v4 like
+// "7951ab54-28c8-4759-bfc5-f50f1b24a9a1". We use this to
+// filter out non-session subdirectories that other tools or
+// the user may have created inside a project folder, like
+// ".claude-history" from third-party history exporters.
+var sessionUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // The cascade-delete map for Claude Code. Removing one session
 // from chronicle has to take that session's sibling artifacts
@@ -45,10 +54,15 @@ const categoryClaudeSession = "claude-session"
 // session. The plan lists every artifact that session owns on
 // disk:
 //
-//   - The .jsonl session file under projects/<cwd>/<id>.jsonl
-//   - The file-history/<id>/ directory of versioned file backups
-//   - The tasks/<id>/ directory of task state
-//   - The session-env/<id> file of captured environment
+//   - The .jsonl session file under projects/<cwd>/<id>.jsonl.
+//   - The companion directory at projects/<cwd>/<id>/ that
+//     holds subagents/ and tool-results/. The directory is
+//     created lazily, so a session that never spawned a
+//     subagent or never spilled a large tool result will not
+//     have one.
+//   - The file-history/<id>/ directory of versioned file backups.
+//   - The tasks/<id>/ directory of task state.
+//   - The session-env/<id> file of captured environment.
 //
 // Any sibling that does not exist on disk is dropped silently
 // from the plan. We never include a path the user would not
@@ -76,8 +90,17 @@ func (p *Provider) PlanDelete(root fs.FS, id contracts.SessionID) (contracts.Del
 	// only keep the ones that really exist.
 	addItem(root, &plan, sessionFile, "session file")
 
-	// Each sibling lives under the Claude root and is keyed by
-	// the session UUID. Some are files, some are directories.
+	// The companion directory sits next to the .jsonl file and
+	// shares its parent. We strip the .jsonl suffix to find it.
+	// Issue #59248 in the upstream repo confirms that Claude's
+	// own auto-cleaner forgets to remove this directory when the
+	// session ages out, so chronicle picking it up is one of the
+	// most concrete reasons our cleanup beats waiting 30 days.
+	companion := strings.TrimSuffix(sessionFile, ".jsonl")
+	addItem(root, &plan, companion, "session companion (subagents, tool results)")
+
+	// The siblings under the Claude root, each keyed by the
+	// session UUID. Some are files, some are directories.
 	// addItem handles both shapes.
 	addItem(root, &plan, path.Join(fileHistoryDir, string(id)), "file history")
 	addItem(root, &plan, path.Join(tasksDir, string(id)), "task state")
@@ -91,11 +114,15 @@ func (p *Provider) PlanDelete(root fs.FS, id contracts.SessionID) (contracts.Del
 // projects/. Each orphan becomes one item in the returned plan,
 // labeled with a Reason that names the kind of orphan it is.
 //
-// The version-one chronicle does not expose this method
-// through the CLI yet. Once `chronicle clean orphans` lands,
-// it will call PlanOrphanScan and route the returned plan
-// through composition.Trash the same way per-session deletes
-// go through it today.
+// The scan covers two kinds of orphan:
+//
+//  1. Sibling directories under the Claude root that are keyed
+//     by session UUID: file-history/, tasks/, session-env/.
+//  2. Companion directories that sit next to the .jsonl session
+//     file inside projects/<encoded-cwd>/<sessionId>/. Issue
+//     #59248 in the upstream repo confirms these are the most
+//     common kind of leftover, because Claude's own auto-cleaner
+//     removes the .jsonl but forgets the companion.
 func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
 	knownSessions, err := collectKnownSessionIDs(root)
 	if err != nil {
@@ -122,13 +149,70 @@ func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
 		}
 	}
 
-	// In addition to the per-session orphans above, scan for the
-	// floating-junk files that have nothing to do with a
-	// specific session. These live in their own helper so each
-	// heuristic stays small and the cleanup map for "what is
-	// orphan?" reads as one ordered list.
+	// In addition to the sibling directories above, scan every
+	// project for companion directories whose .jsonl file has
+	// disappeared. The upstream auto-cleaner leaves these
+	// behind systematically (issue #59248), so they are the
+	// single biggest source of orphan disk usage in practice.
+	scanCompanionOrphans(root, knownSessions, &plan)
+
+	// Finally, scan for the floating-junk files that have
+	// nothing to do with a specific session. These live in
+	// their own helper so each heuristic stays small and the
+	// orphan map reads as one ordered list.
 	scanFloatingOrphans(root, &plan)
 	return plan, nil
+}
+
+// memoryDir is the per-project auto-memory directory. We skip
+// it during orphan scans because it is user-facing content the
+// user can read and edit through the /memory command. A future
+// `chronicle memory` workflow can manage these files
+// explicitly.
+const memoryDir = "memory"
+
+// scanCompanionOrphans walks every project directory looking
+// for subdirectories whose name is a session UUID with no
+// matching .jsonl file in the same project. Each one becomes
+// an orphan plan item.
+//
+// We skip the special "memory" subdirectory because it is the
+// per-project auto-memory directory, not a session companion.
+// Deleting it would lose the user's accumulated project
+// knowledge.
+func scanCompanionOrphans(root fs.FS, knownSessions map[string]bool, plan *contracts.DeletePlan) {
+	projects, err := fs.ReadDir(root, projectsDir)
+	if err != nil {
+		return
+	}
+	for _, proj := range projects {
+		if !proj.IsDir() {
+			continue
+		}
+		projectPath := path.Join(projectsDir, proj.Name())
+		entries, err := fs.ReadDir(root, projectPath)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			// Skip the per-project memory directory and any
+			// subdirectory whose name is not a session UUID. The
+			// UUID check protects us against third-party tools or
+			// user-created subdirectories that happen to live
+			// inside a project folder.
+			if name == memoryDir || !sessionUUIDPattern.MatchString(name) {
+				continue
+			}
+			if knownSessions[name] {
+				continue
+			}
+			addItem(root, plan, path.Join(projectPath, name), "orphaned session companion")
+		}
+	}
 }
 
 // orphanSibling describes one sibling directory the orphan scan
