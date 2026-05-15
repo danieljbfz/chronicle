@@ -120,7 +120,7 @@ func TestSettingsTOML_roundTripsThroughTheDecoder(t *testing.T) {
 	if !decoded.Providers[config.ProviderClaude].Enabled {
 		t.Error("Claude should be enabled in the round-tripped config")
 	}
-	if !decoded.Providers[config.ProviderCopilot].Enabled {
+	if !decoded.Providers[config.ProviderCopilotChat].Enabled {
 		t.Error("Copilot should be enabled in the round-tripped config")
 	}
 }

@@ -15,13 +15,21 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Provider name constants used by the config package and the
-// adapter registry alike. Keeping the names in one place
-// means the TOML key, the registry lookup, and any test
-// fixture all reference the same string.
+// Provider name constants used by the config package and
+// the adapter registry alike. Keeping the names in one
+// place means the TOML key, the registry lookup, and any
+// test fixture all reference the same string.
+//
+// GitHub markets several products under the umbrella name
+// "Copilot." We model each as its own adapter so the
+// user-facing surfaces (chronicle doctor, the providers
+// map in config) tell the truth about what is on disk.
+// ProviderCopilotChat is the VS Code chat extension;
+// ProviderCopilotAgent is the @github/copilot-sdk runtime.
 const (
-	ProviderClaude  = "claude"
-	ProviderCopilot = "copilot"
+	ProviderClaude       = "claude"
+	ProviderCopilotChat  = "copilot-chat"
+	ProviderCopilotAgent = "copilot-agent"
 )
 
 // Config is the in-memory shape of config.toml. Each nested struct
@@ -134,8 +142,9 @@ func Defaults() Config {
 			},
 		},
 		Providers: map[string]ProviderConfig{
-			ProviderClaude:  {Enabled: true},
-			ProviderCopilot: {Enabled: true},
+			ProviderClaude:       {Enabled: true},
+			ProviderCopilotChat:  {Enabled: true},
+			ProviderCopilotAgent: {Enabled: true},
 		},
 	}
 }

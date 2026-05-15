@@ -1,4 +1,4 @@
-package copilot
+package copilotchat
 
 import (
 	"strings"

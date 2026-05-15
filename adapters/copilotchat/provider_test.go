@@ -1,4 +1,4 @@
-package copilot
+package copilotchat
 
 import (
 	"os"
@@ -126,10 +126,11 @@ func TestProvider_ReadSession_findsEmptyWindowSession(t *testing.T) {
 	}
 }
 
-// TestProvider_implementsCleaner pins the fact that the Copilot
-// adapter supports cascade-aware cleanup. If anyone ever removes
-// one of the Cleaner methods, the type assertion fails and the
-// test catches the regression before any destructive code ships.
+// TestProvider_implementsCleaner pins the fact that the
+// Copilot Chat adapter supports cascade-aware cleanup. If
+// anyone ever removes one of the Cleaner methods, the
+// type assertion fails and the test catches the
+// regression before any destructive code ships.
 func TestProvider_implementsCleaner(t *testing.T) {
 	var p any = New()
 	if _, ok := p.(contracts.Cleaner); !ok {

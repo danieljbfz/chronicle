@@ -55,7 +55,7 @@ root    = "/some/where"
 	if cfg.Providers[ProviderClaude].Root != "/some/where" {
 		t.Errorf("Root = %q, want %q", cfg.Providers[ProviderClaude].Root, "/some/where")
 	}
-	if !cfg.Providers[ProviderCopilot].Enabled {
+	if !cfg.Providers[ProviderCopilotChat].Enabled {
 		t.Error("Copilot should remain enabled (default)")
 	}
 }

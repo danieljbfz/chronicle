@@ -126,31 +126,48 @@ exports) are out of scope by definition.
 
 ## GitHub Copilot: user-facing concept inventory
 
-Copilot has three local-state surfaces that all matter for chronicle's
-mission. Two of the three are NOT currently modeled.
+GitHub Copilot is an umbrella brand. Two distinct products
+under that brand write to local disk and chronicle models
+each as its own adapter:
 
-### Surface A: VS Code chat sessions
+- **Copilot Chat extension** (`adapters/copilotchat/`).
+  The classic VS Code in-IDE chat panel. Stores its data
+  inside VS Code's workspaceStorage. Has been in
+  production for years.
+- **Copilot agent runtime** (`adapters/copilotagent/`).
+  The autonomous SDK runtime at `@github/copilot-sdk`,
+  invoked from VS Code's agent mode, the standalone
+  Copilot CLI tool, or any application that imports the
+  SDK directly. Newer, in public preview.
+
+The two have non-overlapping data on disk: no session id
+appears in both places, the file formats share zero
+bytes, and a single user can have data in both. They are
+not two versions of the same product. Each gets its own
+adapter and shows up as its own row in `chronicle doctor`.
+
+### copilot-chat surface (VS Code Chat extension)
 
 | Concept | On-disk location | What chronicle does today |
 | --- | --- | --- |
 | Chat sessions | `<vscode>/User/workspaceStorage/<hash>/chatSessions/<id>.jsonl` | ✓ list, export, copy, search |
 | Empty-window sessions | `<vscode>/User/globalStorage/.../emptyWindowChatSessions/<id>.jsonl` | ✓ list, export |
 | Edit snapshots | `<vscode>/User/workspaceStorage/<hash>/chatEditingSessions/` | ✓ cascade-delete |
-| CLI image attachments | `<vscode>/User/globalStorage/github.copilot-chat/copilot-cli-images/<sid>-*` | ✓ orphan-aware cleanup |
+| Legacy CLI image attachments | `<vscode>/User/globalStorage/github.copilot-chat/copilot-cli-images/<sid>-*` | ✓ orphan-aware cleanup |
 
-### Surface B: Copilot CLI sessions (NOT currently modeled)
+### copilot-agent surface (`@github/copilot-sdk`)
 
 | Concept | On-disk location | What chronicle does today |
 | --- | --- | --- |
-| CLI sessions | `~/.copilot/session-state/<id>/` | ✗ (real coverage gap) |
-| VS Code↔CLI handoff metadata | `~/.copilot/vscode.session.metadata.cache.json` | ✗ |
-| IDE bridge locks | `~/.copilot/ide/<id>.lock` | ✗ |
+| Agent sessions | `~/.copilot/session-state/<id>/events.jsonl` | ✓ list, read, search, export |
+| VS Code launcher metadata | `~/.copilot/session-state/<id>/vscode.metadata.json` | ✓ used for session title |
+| IDE bridge locks | `~/.copilot/ide/<id>.lock` | ✗ runtime sockets, intentionally untouched |
+| VS Code session cache | `~/.copilot/vscode.session.metadata.cache.json` | ✗ frontend cache, intentionally untouched |
+| Per-session checkpoints | `~/.copilot/session-state/<id>/checkpoints/` | ✗ not yet used |
+| Per-session files | `~/.copilot/session-state/<id>/files/` | ✗ not yet used |
+| Per-session research | `~/.copilot/session-state/<id>/research/` | ✗ not yet used |
 
-The Copilot CLI ships its own `/chronicle` slash command, which
-suggests Anthropic and GitHub view chronicle-like inspection as
-genuinely useful. The naming collision is unfortunate but unavoidable.
-
-### Surface C: shared and cross-tool concepts
+### Shared and cross-tool concepts
 
 | Concept | Location varies | Notes |
 | --- | --- | --- |
@@ -185,7 +202,7 @@ This is the foundation. Both tools fit cleanly.
 | Per-project memory | `projects/<cwd>/memory/MEMORY.md` + topic files | repo-level custom instructions | `contracts.MemoryStore` (Claude implements; Copilot does not, because per-repo files are user-source not chronicle-state) |
 | User-global instructions | `~/.claude/CLAUDE.md` | Copilot personal custom instructions (cloud-stored or IDE settings) | `contracts.GlobalMemoryStore` (Claude implements; Copilot does not, because not on local disk) |
 | User-global config with per-project entries | `~/.claude.json` projects map | no direct equivalent (per-project state lives in workspaceStorage, not a single map) | `contracts.GlobalConfig` (Claude implements; Copilot does not) |
-| Resume in original tool | `claude --resume <id>` CLI flag | VS Code Chat has no external API to jump to a session by id; Copilot CLI does have session-state but resume semantics are not yet stable | `contracts.Resumable` (Claude implements; Copilot CLI candidate for later) |
+| Resume in original tool | `claude --resume <id>` CLI flag | VS Code Chat has no external API to jump to a session by id; the @github/copilot-sdk does have a resumable-session contract but we have not yet wired it through | `contracts.Resumable` (Claude implements; copilot-agent is the natural next candidate) |
 
 The pattern: every optional capability that exists today is also a
 real candidate for another adapter to implement, once we read that
@@ -241,25 +258,27 @@ to be the one tool that sees them all.
 The CLI is stable. The architecture is stable. But this analysis
 surfaces three real gaps and three deferred decisions.
 
-### Gap 1: Copilot CLI sessions are not modeled
+### Gap 1 (closed): Copilot agent sessions are now modeled
 
-`~/.copilot/session-state/<id>/` contains real session data on the
-working machine right now. Chronicle does not see it. The right fix is
-either:
+An earlier revision of this document called out that
+`~/.copilot/session-state/<id>/` contained real session
+data chronicle did not see. The follow-up research showed
+the directory is the on-disk persistence layer for the
+`@github/copilot-sdk` LocalSessionManager, which the
+Copilot agent runtime uses regardless of which frontend
+launched it (VS Code agent mode, the standalone Copilot
+CLI, or any application that imports the SDK).
 
-(a) Extend the existing Copilot adapter to read both VS Code Chat and
-    Copilot CLI surfaces. Each becomes a "project" or a sibling root
-    inside one adapter.
-
-(b) Split Copilot into two adapters: `copilot-vscode` and
-    `copilot-cli`, each modeling its own surface independently.
-
-The architecture supports both. The right call depends on whether the
-two Copilot surfaces share schemas (favoring option a) or differ
-substantially (favoring option b). A small research pass on the
-on-disk layout of `~/.copilot/session-state/<id>/` resolves the
-question. **This is a real coverage gap worth filing as the next
-piece of architectural work.**
+Resolution: chronicle now ships two distinct GitHub
+Copilot adapters. `adapters/copilotchat/` reads the VS
+Code Copilot Chat extension's data under
+workspaceStorage. `adapters/copilotagent/` reads the
+agent runtime's data under `~/.copilot/`. Both appear in
+`chronicle doctor` with their own provider names
+(`copilot-chat`, `copilot-agent`), version fingerprints,
+and capability sets. Adding a third Copilot product later
+(say, GitHub.com cloud sessions if they ever ship local
+mirroring) would be a third sibling adapter.
 
 ### Gap 2: cross-provider concepts that exist but chronicle ignores
 
@@ -325,20 +344,21 @@ surface is stable.**
 
 ## Provider capability matrix
 
-This table is the user-facing version of the bucket analysis above.
-The README references it.
+This table is the user-facing version of the bucket
+analysis above. The README references it.
 
-| Capability | Claude Code | GitHub Copilot Chat (VS Code) | GitHub Copilot CLI |
+| Capability | claude | copilot-chat | copilot-agent |
 | --- | --- | --- | --- |
-| Base `Provider` (list, read sessions) | ✓ | ✓ | ✗ (not yet modeled) |
-| `Cleaner` (delete sessions, scan orphans) | ✓ | ✓ | ✗ |
-| `MemoryStore` (per-project memory) | ✓ | ✗ (no per-project memory in VS Code Chat) | ✗ |
-| `GlobalMemoryStore` (user-wide instructions) | ✓ | ✗ (cloud-stored, not local) | ✗ |
-| `Resumable` (re-open in original tool) | ✓ | ✗ (no external API) | ✗ (candidate, semantics not yet stable) |
-| `GlobalConfig` (per-project config entries) | ✓ | ✗ (no single global config with project map) | ✗ |
+| Base `Provider` (list, read sessions) | ✓ | ✓ | ✓ |
+| `Cleaner` (delete sessions, scan orphans) | ✓ | ✓ | ✗ (deferred until cascade rules for checkpoints/files/research are clear) |
+| `MemoryStore` (per-project memory) | ✓ | ✗ (no per-project memory in VS Code Chat) | ✗ (no per-project memory in the SDK) |
+| `GlobalMemoryStore` (user-wide instructions) | ✓ | ✗ (cloud-stored, not local) | ✗ (none in the SDK) |
+| `Resumable` (re-open in original tool) | ✓ | ✗ (no external API) | ✗ (candidate; the SDK is designed for resumable sessions, work pending) |
+| `GlobalConfig` (per-project config entries) | ✓ | ✗ (no single global config with project map) | ✗ (none in the SDK) |
 
-The asymmetry is real and intentional. Each row reflects what the
-underlying tool actually exposes, not chronicle's preferences.
+The asymmetry is real and intentional. Each row reflects
+what the underlying tool actually exposes, not chronicle's
+preferences.
 
 ---
 

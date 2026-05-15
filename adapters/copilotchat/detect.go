@@ -1,4 +1,4 @@
-package copilot
+package copilotchat
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 
 // adapterName is the string returned by Provider.Name and stamped
 // on every StorageVersion this package produces.
-const adapterName = "copilot"
+const adapterName = "copilot-chat"
 
 // maxFingerprintRecords caps how many event records contribute to
 // the fingerprint. The first records carry the schema variety the

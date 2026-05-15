@@ -19,18 +19,24 @@ import (
 // and the result travels down to whichever code needs it. The struct is
 // small, so we pass it by value everywhere and never deal with pointers.
 //
-// CopilotRoots is a slice because Copilot data lives in several
-// places at once. The default list covers VS Code and VS Code
-// Insiders. Users with Cursor or other VS Code forks can extend the
-// list through their config file.
+// CopilotChatRoots is a slice because the Copilot Chat
+// extension's data lives in several places at once. The
+// default list covers VS Code and VS Code Insiders. Users
+// with Cursor or other VS Code forks can extend the list
+// through their config file.
+//
+// CopilotAgentRoot is the location of the @github/copilot-sdk
+// runtime's session storage. The SDK uses ~/.copilot/ on
+// every platform it supports today.
 type Locations struct {
-	ConfigDir    string
-	ConfigFile   string
-	TrashDir     string
-	ReportsDir   string
-	HomeDir      string
-	ClaudeRoot   string
-	CopilotRoots []string
+	ConfigDir        string
+	ConfigFile       string
+	TrashDir         string
+	ReportsDir       string
+	HomeDir          string
+	ClaudeRoot       string
+	CopilotChatRoots []string
+	CopilotAgentRoot string
 }
 
 // Resolve returns the default Locations for the current user. The home
@@ -48,35 +54,36 @@ func Resolve() (Locations, error) {
 	}
 	config := filepath.Join(home, ".config", "chronicle")
 	return Locations{
-		ConfigDir:    config,
-		ConfigFile:   filepath.Join(config, "config.toml"),
-		TrashDir:     filepath.Join(config, "trash"),
-		ReportsDir:   filepath.Join(config, "format-reports"),
-		HomeDir:      home,
-		ClaudeRoot:   filepath.Join(home, ".claude"),
-		CopilotRoots: defaultCopilotRoots(home),
+		ConfigDir:        config,
+		ConfigFile:       filepath.Join(config, "config.toml"),
+		TrashDir:         filepath.Join(config, "trash"),
+		ReportsDir:       filepath.Join(config, "format-reports"),
+		HomeDir:          home,
+		ClaudeRoot:       filepath.Join(home, ".claude"),
+		CopilotChatRoots: defaultCopilotChatRoots(home),
+		CopilotAgentRoot: filepath.Join(home, ".copilot"),
 	}, nil
 }
 
-// defaultCopilotRoots returns the standard list of paths where
-// VS Code and its sibling installs keep their Copilot data on the
-// current operating system. We list both regular VS Code and
-// VS Code Insiders. Users with other VS Code forks (Cursor,
-// VSCodium, and so on) can extend the list through the config
-// file.
+// defaultCopilotChatRoots returns the standard list of paths
+// where VS Code and its sibling installs keep their Copilot
+// Chat extension data on the current operating system. We
+// list both regular VS Code and VS Code Insiders. Users
+// with other VS Code forks (Cursor, VSCodium, and so on)
+// can extend the list through the config file.
 //
-// The path layout follows VS Code's own conventions, which are
-// well documented and the same on every machine of a given
-// operating system:
+// The path layout follows VS Code's own conventions, which
+// are well documented and the same on every machine of a
+// given operating system:
 //
 //	macOS:    ~/Library/Application Support/Code/User
 //	Linux:    ~/.config/Code/User
 //	Windows:  %APPDATA%/Code/User    (typically ~/AppData/Roaming/Code/User)
 //
-// We use os.UserConfigDir to find the right base directory on
-// Linux and Windows, because that helper already knows about
-// XDG_CONFIG_HOME and the Windows %APPDATA% variable.
-func defaultCopilotRoots(home string) []string {
+// We use os.UserConfigDir to find the right base directory
+// on Linux and Windows, because that helper already knows
+// about XDG_CONFIG_HOME and the Windows %APPDATA% variable.
+func defaultCopilotChatRoots(home string) []string {
 	switch runtime.GOOS {
 	case "darwin":
 		base := filepath.Join(home, "Library", "Application Support")

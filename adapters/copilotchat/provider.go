@@ -1,4 +1,4 @@
-package copilot
+package copilotchat
 
 import (
 	"errors"
@@ -10,30 +10,36 @@ import (
 	"github.com/danieljbfz/chronicle/contracts"
 )
 
-// Provider is the Copilot adapter. Composition keeps one instance
-// per Copilot root (one for VS Code, one for VS Code Insiders, and
-// so on). The type holds a small cache of the storage version it
-// detected the first time someone asked, so repeated calls do not
-// pay the detection cost again.
+// Provider is the chronicle adapter for the GitHub Copilot
+// Chat extension, which stores its data inside VS Code's
+// workspaceStorage tree. Composition keeps one instance
+// per detected Copilot Chat root (one for VS Code, one for
+// VS Code Insiders, and so on). Provider holds a small
+// cache of the storage version it detected the first time
+// someone asked, so repeated calls do not pay the
+// detection cost again.
 type Provider struct {
 	cached  contracts.StorageVersion
 	cacheOK bool
 }
 
-// New returns a ready-to-use Provider. The constructor stays
-// I/O-free on purpose. The first caller that asks for the storage
-// version is the one that pays the disk-read cost, and everyone
-// after that gets the cached result.
+// New returns a ready-to-use Provider. The constructor
+// stays I/O-free on purpose. The first caller that asks
+// for the storage version is the one that pays the
+// disk-read cost, and everyone after that gets the cached
+// result.
 func New() *Provider { return &Provider{} }
 
-// Name returns the adapter's stable identifier. The doctor view
-// and the JSON output of the list command use this to label
-// Copilot rows.
+// Name returns the adapter's stable identifier. The
+// doctor view and the JSON output of the list command use
+// this to label rows that came from the Copilot Chat
+// extension.
 func (*Provider) Name() string { return adapterName }
 
-// Detect returns the StorageVersion for the given root. The first
-// call computes the fingerprint by reading one session file. Every
-// later call serves from the in-memory cache.
+// Detect returns the StorageVersion for the given root. The
+// first call computes the fingerprint by reading one
+// session file. Every later call serves from the in-memory
+// cache.
 func (p *Provider) Detect(root fs.FS) (contracts.StorageVersion, error) {
 	if p.cacheOK {
 		return p.cached, nil
@@ -287,14 +293,12 @@ func locateInEmptyWindows(root fs.FS, id contracts.SessionID) (string, bool) {
 	return "", false
 }
 
-// Compile-time check: *Provider satisfies contracts.Provider. If
-// we ever add a method to the interface or change a signature,
-// the build fails right here with an error that names the
-// missing method.
-//
-// Note: this adapter does not yet implement contracts.Cleaner.
-// The destructive paths arrive once the trash subsystem is in
-// place. Until then, no code in chronicle can accidentally delete
-// anything from a Copilot session, because the cleanup methods
-// do not exist on this type.
-var _ contracts.Provider = (*Provider)(nil)
+// Compile-time check: *Provider satisfies the base
+// contracts.Provider interface and the optional
+// contracts.Cleaner capability. If a future contract
+// change adds or renames a method, the build fails right
+// here with the missing method named.
+var (
+	_ contracts.Provider = (*Provider)(nil)
+	_ contracts.Cleaner  = (*Provider)(nil)
+)

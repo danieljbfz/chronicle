@@ -17,7 +17,8 @@ import (
 	"os"
 
 	"github.com/danieljbfz/chronicle/adapters/claude"
-	"github.com/danieljbfz/chronicle/adapters/copilot"
+	"github.com/danieljbfz/chronicle/adapters/copilotagent"
+	"github.com/danieljbfz/chronicle/adapters/copilotchat"
 	"github.com/danieljbfz/chronicle/contracts"
 	"github.com/danieljbfz/chronicle/internal/config"
 	"github.com/danieljbfz/chronicle/internal/paths"
@@ -48,10 +49,12 @@ type Factory func(config.Config, paths.Locations) []Entry
 func All() []Factory {
 	return []Factory{
 		claudeFactory,
-		copilotFactory,
-		// Future plans add cursorFactory, antigravityFactory, and
-		// so on. Each new line is one import above and one entry
-		// here, with no other change to the rest of chronicle.
+		copilotChatFactory,
+		copilotAgentFactory,
+		// Future plans add cursorFactory, antigravityFactory,
+		// and so on. Each new line is one import above and
+		// one entry here, with no other change to the rest
+		// of chronicle.
 	}
 }
 
@@ -76,21 +79,61 @@ func claudeFactory(settings config.Config, locations paths.Locations) []Entry {
 	}}
 }
 
-// copilotFactory builds one Entry per Copilot root that exists on
-// disk. The user's config provides the candidate roots (defaulting
-// to the macOS VS Code and VS Code Insiders locations), and we
-// silently skip any root that is missing. The user might have only
-// VS Code installed, or only VS Code Insiders, or both. Each
-// surviving root gets its own Provider value so each one keeps its
-// own cached storage version.
-func copilotFactory(settings config.Config, locations paths.Locations) []Entry {
-	cfg := settings.Providers[config.ProviderCopilot]
+// copilotAgentFactory builds one Entry for the GitHub
+// Copilot agent runtime (the @github/copilot-sdk
+// LocalSessionManager) when its session-state directory
+// exists on disk. The runtime persists at ~/.copilot/ on
+// every platform it supports today, so the factory
+// produces at most one Entry per chronicle install.
+//
+// This is the second of two Copilot products chronicle
+// models. The other is the Copilot Chat extension whose
+// data lives under VS Code's workspaceStorage. The two
+// have non-overlapping data on disk, so each gets its own
+// Entry and the user sees both in chronicle doctor.
+func copilotAgentFactory(settings config.Config, locations paths.Locations) []Entry {
+	cfg := settings.Providers[config.ProviderCopilotAgent]
+	if !cfg.Enabled {
+		return nil
+	}
+	root := cfg.Root
+	if root == "" {
+		root = locations.CopilotAgentRoot
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	return []Entry{{
+		Provider: copilotagent.New(),
+		Root:     root,
+		FS:       os.DirFS(root),
+	}}
+}
+
+// copilotChatFactory builds one Entry per Copilot Chat root
+// that exists on disk. The user's config provides the
+// candidate roots (defaulting to the macOS VS Code and VS
+// Code Insiders locations), and we silently skip any root
+// that is missing. The user might have only VS Code
+// installed, or only VS Code Insiders, or both. Each
+// surviving root gets its own Provider value so each one
+// keeps its own cached storage version.
+//
+// Copilot Chat is one of two distinct GitHub Copilot
+// products chronicle models. The other is the agent
+// runtime (~/.copilot/) handled by the copilotagent
+// adapter. Both share the user-facing brand "Copilot" but
+// produce non-overlapping data with different file
+// formats, so each gets its own adapter.
+func copilotChatFactory(settings config.Config, locations paths.Locations) []Entry {
+	cfg := settings.Providers[config.ProviderCopilotChat]
 	if !cfg.Enabled {
 		return nil
 	}
 	roots := cfg.Roots
 	if len(roots) == 0 {
-		roots = locations.CopilotRoots
+		roots = locations.CopilotChatRoots
 	}
 
 	var entries []Entry
@@ -100,7 +143,7 @@ func copilotFactory(settings config.Config, locations paths.Locations) []Entry {
 			continue
 		}
 		entries = append(entries, Entry{
-			Provider: copilot.New(),
+			Provider: copilotchat.New(),
 			Root:     root,
 			FS:       os.DirFS(root),
 		})

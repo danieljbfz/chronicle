@@ -74,10 +74,12 @@ func writeStatsText(w io.Writer, stats composition.Stats) error {
 	if len(stats.Providers) > 0 {
 		fmt.Fprintln(w, "By provider")
 		for _, p := range stats.Providers {
-			fmt.Fprintf(w, "  %s: %s sessions, %s messages, %s across %d %s\n",
+			fmt.Fprintf(w, "  %s: %s %s, %s %s, %s across %d %s\n",
 				p.Name,
 				composition.HumanInt(p.Aggregate.Sessions),
+				composition.Pluralize(p.Aggregate.Sessions, "session", "sessions"),
 				composition.HumanInt(p.Aggregate.Messages),
+				composition.Pluralize(p.Aggregate.Messages, "message", "messages"),
 				composition.HumanBytes(p.Aggregate.SizeBytes),
 				p.Projects,
 				composition.Pluralize(p.Projects, "project", "projects"),
@@ -97,10 +99,11 @@ func writeStatsText(w io.Writer, stats composition.Stats) error {
 			if label == "" {
 				label = string(proj.ProjectID)
 			}
-			fmt.Fprintf(w, "  %-8s  %s  (%s sessions, %s)\n",
+			fmt.Fprintf(w, "  %-8s  %s  (%s %s, %s)\n",
 				proj.Provider,
 				label,
 				composition.HumanInt(proj.Aggregate.Sessions),
+				composition.Pluralize(proj.Aggregate.Sessions, "session", "sessions"),
 				composition.HumanBytes(proj.Aggregate.SizeBytes),
 			)
 		}

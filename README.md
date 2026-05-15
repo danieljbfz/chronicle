@@ -1,6 +1,6 @@
 # chronicle
 
-A local tool for browsing, exporting, and cleaning the on-disk history that AI coding assistants leave behind. Multi-provider by design: works with Claude Code and GitHub Copilot Chat today, ready for any tool with a similar layout.
+A local tool for browsing, exporting, and cleaning the on-disk history that AI coding assistants leave behind. Multi-provider by design: works with Claude Code, the GitHub Copilot Chat extension, and the GitHub Copilot agent runtime today, ready for any tool with a similar layout.
 
 Status: under active development. See `docs/superpowers/specs/2026-05-15-chronicle-design.md` for the design contract and `SKILL_PROMPT.md` for the engineering bar.
 
@@ -70,14 +70,16 @@ Each subcommand finds one kind of cruft and (with `--apply`) moves it into the t
 
 Not every provider supports every feature. The base `Provider` interface (read sessions, list projects) is required; everything else is an optional capability discovered by type assertion at runtime. Adding a new provider is one new package under `adapters/` plus one entry in `adapters/all.go`.
 
-| Capability | Claude Code | GitHub Copilot Chat |
-|------------|-------------|---------------------|
-| List + read sessions | ✓ | ✓ |
-| Cleanup (abandoned, orphans, stale) | ✓ | ✓ |
-| Per-project memory | ✓ | — |
-| User-global memory (CLAUDE.md) | ✓ | — |
-| Resume in original tool | ✓ | — |
-| Dangling project entries (~/.claude.json) | ✓ | — |
+GitHub markets several products under the umbrella name "Copilot." Chronicle models each that writes local data as its own adapter, with honest names that reflect the product (`copilot-chat` for the VS Code Chat extension, `copilot-agent` for the `@github/copilot-sdk` runtime). See `docs/provider-surface.md` for the full reasoning.
+
+| Capability | claude | copilot-chat | copilot-agent |
+|------------|--------|--------------|---------------|
+| List + read sessions | ✓ | ✓ | ✓ |
+| Cleanup (abandoned, orphans, stale) | ✓ | ✓ | — |
+| Per-project memory | ✓ | — | — |
+| User-global memory (CLAUDE.md) | ✓ | — | — |
+| Resume in original tool | ✓ | — | — |
+| Dangling project entries (~/.claude.json) | ✓ | — | — |
 
 ## Recognized storage versions
 
@@ -85,6 +87,7 @@ Not every provider supports every feature. The base `Provider` interface (read s
 |---|---|---|---|
 | Claude Code | `claude-1.0` | `25ce9fd0794c` | 2026-05-15 (Claude Code 2.1.x) |
 | GitHub Copilot Chat | `copilot-3` | `2e10591741e1` | 2026-05-15 (VS Code with chat schema v3) |
+| GitHub Copilot agent | `copilot-agent-1` | (no fingerprint yet) | 2026-05-15 (`@github/copilot-sdk` LocalSessionManager) |
 
 If `chronicle doctor` shows `Version: unknown`, the fingerprint did not match the table above. The tool still works in read-only mode — the resilience contract is documented in `docs/research/07-schema-resilience.md`.
 
