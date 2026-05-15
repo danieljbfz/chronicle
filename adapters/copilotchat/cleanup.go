@@ -94,8 +94,9 @@ func planDeleteWorkspaceSession(root fs.FS, id contracts.SessionID, sessionFile 
 // becomes one item in the returned plan.
 //
 // We do not scan globalStorage during the orphan pass because
-// empty-window chats do not have edit snapshots. There is
-// simply nothing to look for there.
+// empty-window chats do not have edit snapshots. The directory
+// holds no candidates, so the scan would always come back
+// empty.
 func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
 	workspaces, err := fs.ReadDir(root, workspaceStorageDir)
 	if err != nil {

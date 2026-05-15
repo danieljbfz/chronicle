@@ -50,10 +50,10 @@ func Filter(c contracts.Conversation, opts FilterOptions) contracts.Conversation
 		}
 
 		// Step 3: walk the blocks and keep only those the caller
-		// allowed. The type assertion at each check is the standard
-		// Go idiom for "is this Block actually one of these concrete
-		// types?" — the second return value is true when it is and
-		// false when it is not.
+		// allowed. The type assertion at each check is the
+		// standard Go idiom for asking "is this Block actually
+		// one of these concrete types?" The second return value
+		// is true when it is and false when it is not.
 		blocks := make([]contracts.Block, 0, len(m.Blocks))
 		for _, b := range m.Blocks {
 			if opts.HideTools {

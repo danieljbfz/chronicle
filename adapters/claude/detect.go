@@ -74,10 +74,10 @@ var knownFingerprints = map[string]string{
 func detectInDir(root fs.FS) (contracts.StorageVersion, error) {
 	file, err := firstSessionFile(root)
 	if errors.Is(err, fs.ErrNotExist) {
-		// There is no projects directory or no session files inside
-		// it. This is not an error: chronicle should still load and
-		// the doctor view will simply show "no Claude data found
-		// here yet" for this provider.
+		// There is no projects directory, or the directory is
+		// empty. This is not an error. Chronicle should still
+		// load, and the doctor view will show "no Claude data
+		// found here yet" for this provider.
 		return contracts.StorageVersion{
 			Adapter: adapterName,
 			Version: "unknown",
@@ -179,11 +179,12 @@ func collectFingerprintInputs(r io.Reader) ([]steps.FingerprintInput, bool, erro
 	var inputs []steps.FingerprintInput
 	parseable := false
 	for scanner.Scan() && len(inputs) < maxFingerprintRecords {
-		// We decode each line into a map[string]json.RawMessage so we
-		// can read the type field and the set of top-level keys
-		// without committing to a struct shape. json.RawMessage tells
-		// the decoder "leave this value as raw bytes for now" — useful
-		// when we know we will need only some of what is inside.
+		// We decode each line into a map[string]json.RawMessage so
+		// we can read the type field and the set of top-level keys
+		// without committing to a struct shape. The json.RawMessage
+		// type tells the decoder to leave each value as raw bytes
+		// for the moment, which is useful when we know in advance
+		// that we will need only some of the fields inside.
 		var record map[string]json.RawMessage
 		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
 			continue

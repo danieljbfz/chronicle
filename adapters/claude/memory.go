@@ -37,11 +37,11 @@ const (
 )
 
 // ListMemories returns every memory file in every project
-// that has a memory directory. Projects without one are
-// simply absent from the result. The slice is sorted by
-// project name and then by filename, so MEMORY.md appears
-// first inside each project (uppercase sorts before lowercase
-// in alphabetical order).
+// that has a memory directory. Projects without a memory
+// directory do not appear in the result at all. The slice is
+// sorted by project name and then by filename, so MEMORY.md
+// shows up first inside each project, because uppercase
+// sorts before lowercase in alphabetical order.
 func (p *Provider) ListMemories(root fs.FS) ([]contracts.MemoryFile, error) {
 	projects, err := fs.ReadDir(root, projectsDir)
 	if err != nil {
