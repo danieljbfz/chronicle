@@ -47,7 +47,7 @@ func Fingerprint(inputs []FingerprintInput) string {
 	// Step 1: deduplicate the (Type, sorted Keys) tuples. We need
 	// uniqueness because a single session file has hundreds of
 	// "user" records that all share the same set of keys, and we
-	// want to count that as one distinct shape rather than as many.
+	// want to count that as one distinct shape instead of many.
 	seen := make(map[string]struct{}, len(inputs))
 	var tuples []string
 	for _, in := range inputs {

@@ -63,7 +63,7 @@ func fail(format string, args ...any) error {
 // fmtTime formats a timestamp as RFC 3339, or returns the empty
 // string for the zero value. We use this in the JSON output of the
 // list command, where an empty timestamp should appear as an
-// omitted field rather than as a misleading zero year.
+// omitted field instead of a misleading zero year.
 func fmtTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
