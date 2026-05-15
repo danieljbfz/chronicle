@@ -320,3 +320,272 @@ func TestMemoryOperations_failWhenNoMemoryStoreRegistered(t *testing.T) {
 		t.Error("CleanProjectMemory should fail without a memory provider")
 	}
 }
+
+// globalMemoryFake satisfies both Provider and the optional
+// GlobalMemoryStore capability. The pattern mirrors
+// memoryFake above, but for the user-global scope. We keep
+// the two fakes separate because the composition layer also
+// keeps the two capabilities separate.
+type globalMemoryFake struct {
+	name  string
+	files []contracts.GlobalMemoryFile
+}
+
+func (f *globalMemoryFake) Name() string { return f.name }
+func (f *globalMemoryFake) Detect(fs.FS) (contracts.StorageVersion, error) {
+	return contracts.StorageVersion{}, nil
+}
+func (f *globalMemoryFake) ListProjects(fs.FS) ([]contracts.Project, error) { return nil, nil }
+func (f *globalMemoryFake) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+	return nil, nil
+}
+func (f *globalMemoryFake) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversation, error) {
+	return contracts.Conversation{}, nil
+}
+func (f *globalMemoryFake) ListGlobalMemory(fs.FS) ([]contracts.GlobalMemoryFile, error) {
+	return f.files, nil
+}
+func (f *globalMemoryFake) GlobalMemoryFilePath(fileName string) string {
+	return fileName
+}
+func (f *globalMemoryFake) PlanDeleteGlobalMemory(fs.FS) (contracts.DeletePlan, error) {
+	plan := contracts.DeletePlan{Category: "fake-global-memory"}
+	for _, file := range f.files {
+		plan.Items = append(plan.Items, contracts.DeleteItem{
+			Path:   file.FileName,
+			Reason: "global memory file",
+		})
+	}
+	return plan, nil
+}
+
+// newGlobalMemoryTestApp wires a globalMemoryFake provider
+// into an App with a real temp dataRoot so the show and
+// edit paths can read and stat actual files.
+func newGlobalMemoryTestApp(t *testing.T, fake *globalMemoryFake) (*App, string) {
+	t.Helper()
+	dataRoot := t.TempDir()
+	a := &App{
+		settings:  config.Defaults(),
+		locations: paths.Locations{TrashDir: t.TempDir()},
+		providers: []*providerEntry{{
+			Provider: fake,
+			Root:     dataRoot,
+			FS:       os.DirFS(dataRoot),
+		}},
+	}
+	return a, dataRoot
+}
+
+// TestListMemories_includesGlobalEntriesAlongsideProject
+// proves the aggregated listing covers both scopes. The
+// fake exposes one per-project file and one global file; the
+// listing should return both, with the global entry having
+// an empty ProjectID so the renderer can distinguish them.
+func TestListMemories_includesGlobalEntriesAlongsideProject(t *testing.T) {
+	combined := &combinedMemoryFake{
+		name: "claude",
+		project: map[contracts.ProjectID][]contracts.MemoryFile{
+			"proj-a": {{Project: "proj-a", FileName: "MEMORY.md", SizeBytes: 100, ModifiedAt: time.Now()}},
+		},
+		global: []contracts.GlobalMemoryFile{
+			{FileName: "CLAUDE.md", SizeBytes: 200, ModifiedAt: time.Now()},
+		},
+	}
+	dataRoot := t.TempDir()
+	a := &App{
+		settings:  config.Defaults(),
+		locations: paths.Locations{TrashDir: t.TempDir()},
+		providers: []*providerEntry{{
+			Provider: combined, Root: dataRoot, FS: os.DirFS(dataRoot),
+		}},
+	}
+
+	listings, err := a.ListMemories()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listings) != 2 {
+		t.Fatalf("listings = %d, want 2 (one per-project, one global)", len(listings))
+	}
+	var sawGlobal, sawProject bool
+	for _, l := range listings {
+		if l.ProjectID == "" && l.FileName == "CLAUDE.md" {
+			sawGlobal = true
+		}
+		if l.ProjectID == "proj-a" && l.FileName == "MEMORY.md" {
+			sawProject = true
+		}
+	}
+	if !sawGlobal {
+		t.Error("listing missing the global CLAUDE.md entry")
+	}
+	if !sawProject {
+		t.Error("listing missing the per-project MEMORY.md entry")
+	}
+}
+
+// TestShowGlobalMemory_writesFileContentsToWriter is the
+// happy path for the global show command. We drop a real
+// CLAUDE.md at the data root and confirm composition reads
+// it into the supplied writer.
+func TestShowGlobalMemory_writesFileContentsToWriter(t *testing.T) {
+	fake := &globalMemoryFake{
+		name:  "claude",
+		files: []contracts.GlobalMemoryFile{{FileName: "CLAUDE.md"}},
+	}
+	a, dataRoot := newGlobalMemoryTestApp(t, fake)
+
+	want := "# global rules\n\n- be terse\n"
+	if err := os.WriteFile(filepath.Join(dataRoot, "CLAUDE.md"), []byte(want), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := a.ShowGlobalMemory("CLAUDE.md", &buf); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != want {
+		t.Errorf("ShowGlobalMemory wrote %q, want %q", buf.String(), want)
+	}
+}
+
+// TestShowGlobalMemory_missingFileReturnsError pins the
+// not-found contract. A user who runs `chronicle memory
+// show --global` without ever writing CLAUDE.md should see
+// a clear error rather than an empty body that looks like a
+// successful empty file.
+func TestShowGlobalMemory_missingFileReturnsError(t *testing.T) {
+	fake := &globalMemoryFake{name: "claude"}
+	a, _ := newGlobalMemoryTestApp(t, fake)
+
+	var buf bytes.Buffer
+	if err := a.ShowGlobalMemory("CLAUDE.md", &buf); err == nil {
+		t.Error("expected an error for a missing global memory file")
+	}
+}
+
+// TestEditGlobalMemoryPath_returnsAbsolutePathWhenFileExists
+// confirms the edit-path resolution. The CLI uses this to
+// hand the path to $EDITOR, so the contract is "give me the
+// absolute path of the file the user wants to edit, but
+// only if it exists."
+func TestEditGlobalMemoryPath_returnsAbsolutePathWhenFileExists(t *testing.T) {
+	fake := &globalMemoryFake{name: "claude"}
+	a, dataRoot := newGlobalMemoryTestApp(t, fake)
+	full := filepath.Join(dataRoot, "CLAUDE.md")
+	if err := os.WriteFile(full, []byte("# rules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := a.EditGlobalMemoryPath("CLAUDE.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != full {
+		t.Errorf("path = %q, want %q", got, full)
+	}
+}
+
+// TestEditGlobalMemoryPath_missingFileReturnsError mirrors
+// the show test. Refusing to return a path for a non-existent
+// file prevents $EDITOR from creating an empty file the user
+// did not ask for.
+func TestEditGlobalMemoryPath_missingFileReturnsError(t *testing.T) {
+	fake := &globalMemoryFake{name: "claude"}
+	a, _ := newGlobalMemoryTestApp(t, fake)
+
+	if _, err := a.EditGlobalMemoryPath("CLAUDE.md"); err == nil {
+		t.Error("expected an error for a missing global memory file")
+	}
+}
+
+// TestCleanGlobalMemory_returnsPlanWithFile is the happy
+// path for the global clean command. The fake reports one
+// file, so the resulting plan should have one item routed
+// through the right provider entry.
+func TestCleanGlobalMemory_returnsPlanWithFile(t *testing.T) {
+	fake := &globalMemoryFake{
+		name:  "claude",
+		files: []contracts.GlobalMemoryFile{{FileName: "CLAUDE.md"}},
+	}
+	a, _ := newGlobalMemoryTestApp(t, fake)
+
+	planned, err := a.CleanGlobalMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned.ProviderName() != "claude" {
+		t.Errorf("provider = %q, want claude", planned.ProviderName())
+	}
+	if len(planned.Plan.Items) != 1 || planned.Plan.Items[0].Path != "CLAUDE.md" {
+		t.Errorf("plan items = %+v, want one CLAUDE.md item", planned.Plan.Items)
+	}
+}
+
+// TestGlobalMemoryOperations_failWhenNoCapabilityRegistered
+// confirms the error path when no provider implements
+// GlobalMemoryStore. The CLI surfaces this with a clear
+// "no provider supports user-global memory" message.
+func TestGlobalMemoryOperations_failWhenNoCapabilityRegistered(t *testing.T) {
+	a := &App{
+		settings:  config.Defaults(),
+		locations: paths.Locations{TrashDir: t.TempDir()},
+		providers: []*providerEntry{
+			{Provider: &readOnlyFake{}, Root: t.TempDir()},
+		},
+	}
+
+	if err := a.ShowGlobalMemory("CLAUDE.md", &bytes.Buffer{}); err == nil {
+		t.Error("ShowGlobalMemory should fail without a global-memory provider")
+	}
+	if _, err := a.EditGlobalMemoryPath("CLAUDE.md"); err == nil {
+		t.Error("EditGlobalMemoryPath should fail without a global-memory provider")
+	}
+	if _, err := a.CleanGlobalMemory(); err == nil {
+		t.Error("CleanGlobalMemory should fail without a global-memory provider")
+	}
+}
+
+// combinedMemoryFake implements Provider, MemoryStore, AND
+// GlobalMemoryStore. This is the realistic shape for an
+// adapter like Claude that supports both kinds of memory.
+// We use it in the listing test to confirm both surfaces
+// contribute to one combined output.
+type combinedMemoryFake struct {
+	name    string
+	project map[contracts.ProjectID][]contracts.MemoryFile
+	global  []contracts.GlobalMemoryFile
+}
+
+func (f *combinedMemoryFake) Name() string { return f.name }
+func (f *combinedMemoryFake) Detect(fs.FS) (contracts.StorageVersion, error) {
+	return contracts.StorageVersion{}, nil
+}
+func (f *combinedMemoryFake) ListProjects(fs.FS) ([]contracts.Project, error) { return nil, nil }
+func (f *combinedMemoryFake) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+	return nil, nil
+}
+func (f *combinedMemoryFake) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversation, error) {
+	return contracts.Conversation{}, nil
+}
+func (f *combinedMemoryFake) ListMemories(fs.FS) ([]contracts.MemoryFile, error) {
+	var out []contracts.MemoryFile
+	for _, files := range f.project {
+		out = append(out, files...)
+	}
+	return out, nil
+}
+func (f *combinedMemoryFake) MemoryFilePath(project contracts.ProjectID, fileName string) string {
+	return filepath.Join("memory", string(project), fileName)
+}
+func (f *combinedMemoryFake) PlanDeleteProjectMemory(fs.FS, contracts.ProjectID) (contracts.DeletePlan, error) {
+	return contracts.DeletePlan{Category: "fake-memory"}, nil
+}
+func (f *combinedMemoryFake) ListGlobalMemory(fs.FS) ([]contracts.GlobalMemoryFile, error) {
+	return f.global, nil
+}
+func (f *combinedMemoryFake) GlobalMemoryFilePath(name string) string { return name }
+func (f *combinedMemoryFake) PlanDeleteGlobalMemory(fs.FS) (contracts.DeletePlan, error) {
+	return contracts.DeletePlan{Category: "fake-global-memory"}, nil
+}

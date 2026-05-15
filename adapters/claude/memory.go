@@ -23,6 +23,19 @@ import (
 // show, edit, and delete these files without anyone outside
 // the adapter needing to know how Claude stores them on disk.
 
+// Categories and reasons used by the memory deletion plans.
+// We keep them as named constants so the strings the trash
+// listing displays are defined in one place. Adding a new
+// kind of memory plan is one new constant here plus one use
+// site below.
+const (
+	categoryProjectMemory = "claude-memory"
+	categoryGlobalMemory  = "claude-global-memory"
+
+	reasonProjectMemoryFile = "memory file"
+	reasonGlobalMemoryFile  = "global memory file"
+)
+
 // ListMemories returns every memory file in every project
 // that has a memory directory. Projects without one are
 // simply absent from the result. The slice is sorted by
@@ -123,13 +136,94 @@ func (p *Provider) PlanDeleteProjectMemory(root fs.FS, project contracts.Project
 	}
 
 	plan := contracts.DeletePlan{
-		Category: "claude-memory",
+		Category: categoryProjectMemory,
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		addItem(root, &plan, path.Join(dir, entry.Name()), "memory file")
+		addItem(root, &plan, path.Join(dir, entry.Name()), reasonProjectMemoryFile)
+	}
+	return plan, nil
+}
+
+// globalMemoryFile is the canonical user-global memory file
+// Claude reads at the start of every session. Today this is
+// the only known global memory file. If Claude adds a
+// second one (a CLAUDE.experimental.md or similar), we
+// extend the slice and the rest of the implementation keeps
+// working unchanged.
+const globalMemoryFile = "CLAUDE.md"
+
+// ListGlobalMemory returns the user-global memory files the
+// Claude install currently has on disk. The slice has zero
+// or one entry today: zero when the user has never written
+// CLAUDE.md, one when they have. We return a slice rather
+// than a single value because the contract anticipates
+// providers that grow more than one global file later, and
+// the slice shape keeps the consumers uniform.
+func (p *Provider) ListGlobalMemory(root fs.FS) ([]contracts.GlobalMemoryFile, error) {
+	var out []contracts.GlobalMemoryFile
+	for _, name := range globalMemoryFiles {
+		info, err := fs.Stat(root, name)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return nil, newError("list global memory", name, err)
+		}
+		if info.IsDir() {
+			// A directory at this name is not a memory
+			// file. Skip silently rather than fail, so a
+			// future provider quirk does not break the
+			// listing of the rest.
+			continue
+		}
+		out = append(out, contracts.GlobalMemoryFile{
+			FileName:   name,
+			SizeBytes:  info.Size(),
+			ModifiedAt: info.ModTime(),
+		})
+	}
+	return out, nil
+}
+
+// globalMemoryFiles is the set of filenames Claude treats as
+// user-global memory at the top of the chronicle root. Today
+// the set has one entry. We keep it as a slice constant so
+// adding a second filename later is a one-line change with
+// no other code to update.
+var globalMemoryFiles = []string{globalMemoryFile}
+
+// GlobalMemoryFilePath returns the path of one global memory
+// file inside the Claude root. Composition joins it with the
+// provider's absolute root to find the file on disk.
+//
+// We do not validate the filename against globalMemoryFiles
+// here. The CLI is responsible for passing a valid name,
+// and the caller's read or write will fail naturally with a
+// "no such file" error if the name does not exist on disk.
+func (p *Provider) GlobalMemoryFilePath(fileName string) string {
+	return fileName
+}
+
+// PlanDeleteGlobalMemory returns a DeletePlan that wipes
+// every user-global memory file Claude knows about. The
+// plan goes through chronicle's normal trash flow, so a
+// regretted clean can be undone with `chronicle trash
+// restore`.
+//
+// We deliberately scan the same set ListGlobalMemory uses,
+// so the dry-run output matches what the user sees in the
+// listing. A file that is not on disk produces no plan
+// item, which is the correct behaviour: there is nothing to
+// delete.
+func (p *Provider) PlanDeleteGlobalMemory(root fs.FS) (contracts.DeletePlan, error) {
+	plan := contracts.DeletePlan{
+		Category: categoryGlobalMemory,
+	}
+	for _, name := range globalMemoryFiles {
+		addItem(root, &plan, name, reasonGlobalMemoryFile)
 	}
 	return plan, nil
 }
@@ -142,3 +236,10 @@ func (p *Provider) PlanDeleteProjectMemory(root fs.FS, project contracts.Project
 // produced the empty-memory-list bug during the first
 // implementation pass.
 var _ contracts.MemoryStore = (*Provider)(nil)
+
+// Compile-time check: *Provider satisfies the optional
+// contracts.GlobalMemoryStore capability. Same protection
+// pattern as MemoryStore: a future contract change surfaces
+// here at build time rather than as a runtime ok=false on
+// the type assertion.
+var _ contracts.GlobalMemoryStore = (*Provider)(nil)

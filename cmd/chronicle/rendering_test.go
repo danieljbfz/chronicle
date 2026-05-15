@@ -19,7 +19,7 @@ func TestWriteMemoryList_emptyShowsExplicitMessage(t *testing.T) {
 	if err := writeMemoryList(&buf, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), "No per-project memory files") {
+	if !strings.Contains(buf.String(), "No memory files") {
 		t.Errorf("empty memory list should explain itself, got: %q", buf.String())
 	}
 }

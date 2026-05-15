@@ -83,17 +83,25 @@ func newMemoryListCmd() *cobra.Command {
 // writeMemoryList prints the entries one per line in plain
 // text. The format is meant to be skimmed: provider, project,
 // filename, size, and modification date in fixed-width
-// columns so the eye can find the file the user wants.
+// columns so the eye can find the file the user wants. The
+// project column shows "(global)" for user-global memory
+// (entries with an empty ProjectID), so the user can tell
+// at a glance which row is the global ~/.claude/CLAUDE.md
+// versus a per-project MEMORY.md.
 func writeMemoryList(w io.Writer, entries []composition.MemoryListing) error {
 	if len(entries) == 0 {
-		fmt.Fprintln(w, "No per-project memory files found.")
+		fmt.Fprintln(w, "No memory files found.")
 		return nil
 	}
 	fmt.Fprintf(w, "%d memory file(s):\n\n", len(entries))
 	for _, entry := range entries {
+		project := string(entry.ProjectID)
+		if project == "" {
+			project = "(global)"
+		}
 		fmt.Fprintf(w, "  %-8s %s/%s  (%s, %s)\n",
 			entry.Provider,
-			entry.ProjectID,
+			project,
 			entry.FileName,
 			composition.HumanBytes(entry.SizeBytes),
 			entry.ModifiedAt,
@@ -102,18 +110,61 @@ func writeMemoryList(w io.Writer, entries []composition.MemoryListing) error {
 	return nil
 }
 
-// newMemoryShowCmd builds `chronicle memory show <project> <file>`.
-// The output goes to stdout, ready to pipe into a pager
-// (`chronicle memory show ... | less`) or grep.
+// defaultGlobalMemoryFile is the filename chronicle assumes
+// when the user passes --global without a name. Today
+// CLAUDE.md is the only canonical user-global memory file, so
+// asking the user to type it every time would be friction
+// without choice. If they want a different name, they can
+// pass it positionally and we honour it.
+//
+// This intentionally duplicates the adapter's own canonical
+// filename rather than importing it. The adapter constant
+// names the file as it lives on disk. This constant names
+// the CLI's user-experience default. They happen to be the
+// same string today, but the two roles are distinct: a
+// future provider that exposes a global file under a
+// different name would still want the CLI default to be
+// "CLAUDE.md" because that is what every Claude user will
+// type. Composition (not the CLI) is the right boundary
+// for any cross-provider name resolution if it becomes
+// necessary later.
+const defaultGlobalMemoryFile = "CLAUDE.md"
+
+// newMemoryShowCmd builds `chronicle memory show`. The
+// command has two shapes:
+//
+//	chronicle memory show <project> <file>      # per-project
+//	chronicle memory show --global [<file>]     # user-global
+//
+// The --global flag picks the user-wide memory file (such as
+// ~/.claude/CLAUDE.md). When the flag is set, the positional
+// project argument is dropped and the filename defaults to
+// CLAUDE.md. The two shapes route through different
+// composition methods so the contracts layer can keep the
+// per-project and global capabilities separate.
 func newMemoryShowCmd() *cobra.Command {
-	return &cobra.Command{
+	var global bool
+	cmd := &cobra.Command{
 		Use:   "show <project> <file>",
-		Short: "Print one memory file to stdout",
-		Args:  cobra.ExactArgs(2),
+		Short: "Print one memory file to stdout (use --global for user-wide memory)",
+		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := composition.New()
 			if err != nil {
 				return fail("init: %v", err)
+			}
+			if global {
+				fileName := defaultGlobalMemoryFile
+				if len(args) >= 1 {
+					fileName = args[0]
+				}
+				if err := app.ShowGlobalMemory(fileName, cmd.OutOrStdout()); err != nil {
+					return fail("show: %v", err)
+				}
+				return nil
+			}
+			if len(args) != 2 {
+				return fail("show: pass <project> <file>, or --global [<file>]")
 			}
 			project, fileName := contracts.ProjectID(args[0]), args[1]
 			if err := app.ShowMemory(project, fileName, cmd.OutOrStdout()); err != nil {
@@ -122,31 +173,38 @@ func newMemoryShowCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&global, "global", false, "Show the user-wide memory file (defaults to CLAUDE.md)")
+	return cmd
 }
 
-// newMemoryEditCmd builds `chronicle memory edit <project> <file>`.
-// The command spawns the user's `$EDITOR` on the file's
+// newMemoryEditCmd builds `chronicle memory edit`. Same
+// two-shape pattern as show:
+//
+//	chronicle memory edit <project> <file>      # per-project
+//	chronicle memory edit --global [<file>]     # user-global
+//
+// The command spawns the user's $EDITOR on the file's
 // absolute path. We resolve the path through composition,
 // then exec the editor and connect its stdio to the
 // terminal so the user gets the normal interactive
 // experience.
 //
-// We default to `vi` when `$EDITOR` is unset, the same
-// fallback git uses. A user who lands here without `$EDITOR`
+// We default to vi when $EDITOR is unset, the same fallback
+// git uses. A user who lands here without $EDITOR
 // configured at least gets a working editor instead of an
 // error message.
 func newMemoryEditCmd() *cobra.Command {
-	return &cobra.Command{
+	var global bool
+	cmd := &cobra.Command{
 		Use:   "edit <project> <file>",
-		Short: "Open one memory file in $EDITOR",
-		Args:  cobra.ExactArgs(2),
+		Short: "Open one memory file in $EDITOR (use --global for user-wide memory)",
+		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := composition.New()
 			if err != nil {
 				return fail("init: %v", err)
 			}
-			project, fileName := contracts.ProjectID(args[0]), args[1]
-			fullPath, err := app.EditMemoryPath(project, fileName)
+			fullPath, err := resolveMemoryEditPath(app, global, args)
 			if err != nil {
 				return fail("edit: %v", err)
 			}
@@ -164,34 +222,72 @@ func newMemoryEditCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&global, "global", false, "Edit the user-wide memory file (defaults to CLAUDE.md)")
+	return cmd
 }
 
-// newMemoryCleanCmd builds `chronicle memory clean <project>`.
-// The command moves every memory file in one project into
-// the trash. Like the other clean commands, it defaults to
-// dry-run and requires --apply to actually move files. The
-// trash subsystem makes the operation reversible: a
-// regretted clean can be undone with `chronicle trash
-// restore <id>` until the trash entry ages out.
+// resolveMemoryEditPath does the per-project vs global
+// branching for `chronicle memory edit`. We split the
+// resolution out of the cobra wiring so the editor-spawning
+// part stays linear and so a future test can exercise the
+// branching without spawning a real editor.
+func resolveMemoryEditPath(app *composition.App, global bool, args []string) (string, error) {
+	if global {
+		fileName := defaultGlobalMemoryFile
+		if len(args) >= 1 {
+			fileName = args[0]
+		}
+		return app.EditGlobalMemoryPath(fileName)
+	}
+	if len(args) != 2 {
+		return "", fmt.Errorf("pass <project> <file>, or --global [<file>]")
+	}
+	return app.EditMemoryPath(contracts.ProjectID(args[0]), args[1])
+}
+
+// newMemoryCleanCmd builds `chronicle memory clean`. Two
+// shapes:
+//
+//	chronicle memory clean <project>            # per-project
+//	chronicle memory clean --global             # user-global
+//
+// The command moves every memory file at the requested
+// scope into the trash. Like the other clean commands, it
+// defaults to dry-run and requires --apply to actually move
+// files. The trash subsystem makes the operation
+// reversible: a regretted clean can be undone with
+// `chronicle trash restore <id>` until the trash entry ages
+// out.
 func newMemoryCleanCmd() *cobra.Command {
-	var apply bool
+	var apply, global bool
 	cmd := &cobra.Command{
 		Use:   "clean <project>",
-		Short: "Move every memory file in one project into the trash (dry-run by default)",
-		Args:  cobra.ExactArgs(1),
+		Short: "Move every memory file at the chosen scope into the trash (dry-run by default)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := composition.New()
 			if err != nil {
 				return fail("init: %v", err)
 			}
-			project := contracts.ProjectID(args[0])
-			planned, err := app.CleanProjectMemory(project)
+			var planned composition.PlannedDeletion
+			switch {
+			case global:
+				if len(args) != 0 {
+					return fail("clean: --global takes no positional arguments")
+				}
+				planned, err = app.CleanGlobalMemory()
+			case len(args) == 1:
+				planned, err = app.CleanProjectMemory(contracts.ProjectID(args[0]))
+			default:
+				return fail("clean: pass <project> or --global")
+			}
 			if err != nil {
 				return fail("plan: %v", err)
 			}
 			return runClean(app, []composition.PlannedDeletion{planned}, apply, cmd.OutOrStdout())
 		},
 	}
+	cmd.Flags().BoolVar(&global, "global", false, "Clean the user-wide memory file instead of a project")
 	cmd.Flags().BoolVar(&apply, "apply", false, "Actually move files (default is dry-run)")
 	return cmd
 }
