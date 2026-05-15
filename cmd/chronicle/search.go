@@ -24,14 +24,15 @@ import (
 // later. Search closes that gap by looking at the full
 // content of every session.
 //
-// The search runs serially across sessions today. On the
-// contributor's machine that is around 180 sessions for two
-// providers, and the walk completes in a few hundred
-// milliseconds. If a future install grows to thousands of
-// sessions, we will add either an errgroup fan-out or a
-// small index that the search consults instead of every
-// file. We will pick the right approach once a real
-// install gives us the numbers to guide the choice.
+// Today the search walks one session at a time, with no
+// concurrency. On the contributor's machine that is around
+// 180 sessions across two providers, and the walk finishes
+// in a few hundred milliseconds. If a future install grows
+// to thousands of sessions, we will add either an errgroup
+// fan-out or a small index that the search consults instead
+// of opening every file. Which of the two we pick depends
+// on how a real install at that scale behaves, so we are
+// leaving the decision until that scenario actually shows up.
 func newSearchCmd() *cobra.Command {
 	var (
 		providerFlag      string
