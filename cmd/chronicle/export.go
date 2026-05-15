@@ -1,9 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -12,50 +15,87 @@ import (
 	"github.com/danieljbfz/chronicle/steps"
 )
 
-// newExportCmd builds the `chronicle export` subcommand. The user
-// passes a session identifier and gets back a Markdown transcript,
-// either on stdout or written to a file with -o.
+// newExportCmd builds the `chronicle export` subcommand. It
+// has two modes that share the same filter and rendering
+// pipeline. The default mode takes one session identifier
+// and writes a Markdown transcript to a file or stdout.
+// The bulk mode takes a project identifier and writes one
+// Markdown file per session into a directory.
+//
+// We model the two modes through one cobra command rather
+// than two subcommands because they share every flag that
+// matters (the filters, the destination shape) and a user
+// who knows `chronicle export <id>` already knows
+// `chronicle export --bulk <project> -o dir` from the
+// surface alone.
 func newExportCmd() *cobra.Command {
 	var (
 		noTools, noThinking, noMeta bool
 		outPath                     string
+		bulkProject                 string
+		providerName                string
 	)
 	cmd := &cobra.Command{
 		Use:   "export <sessionId>",
 		Short: "Write a filtered Markdown transcript to a file or stdout",
-		Args:  cobra.ExactArgs(1),
+		Long: `chronicle export writes Markdown transcripts of one or many sessions.
+
+Single-session mode (default):
+  chronicle export <sessionId>          write to stdout
+  chronicle export <sessionId> -o file  write to one file
+
+Bulk mode (one project at a time):
+  chronicle export --bulk <projectId> -o <directory>
+
+Bulk writes one Markdown file per session into the destination
+directory. Each file is named with the session's start date
+and identifier so 'ls' shows them in chronological order.
+The directory is created if it does not exist.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := composition.New()
 			if err != nil {
 				return fail("init: %v", err)
 			}
-			return runExport(app, contracts.SessionID(args[0]), exportOpts{
+			opts := exportOpts{
 				noTools:    noTools,
 				noThinking: noThinking,
 				noMeta:     noMeta,
 				outPath:    outPath,
-			}, cmd.OutOrStdout())
+			}
+			if bulkProject != "" {
+				return runBulkExport(app, contracts.ProjectID(bulkProject), providerName, opts, cmd.ErrOrStderr())
+			}
+			if len(args) != 1 {
+				return fail("missing session id (or pass --bulk <projectId>)")
+			}
+			return runExport(app, contracts.SessionID(args[0]), opts, cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().BoolVar(&noTools, "no-tools", false, "Drop tool use and tool result blocks")
 	cmd.Flags().BoolVar(&noThinking, "no-thinking", false, "Drop assistant thinking blocks")
 	cmd.Flags().BoolVar(&noMeta, "no-meta", false, "Drop meta messages like slash-command echoes")
-	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Write to this file instead of stdout")
+	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Write to this file (single mode) or directory (bulk mode)")
+	cmd.Flags().StringVar(&bulkProject, "bulk", "", "Export every session in one project. Value is the project id.")
+	cmd.Flags().StringVar(&providerName, "provider", "", `Disambiguate when more than one provider knows the project, like "claude"`)
 	return cmd
 }
 
-// exportOpts is the small bag of options runExport accepts. We
-// pass them as one struct, not as separate function arguments, so
-// the test code stays readable when new flags are added later.
+// exportOpts is the small bag of options runExport accepts.
+// We pass them as one struct, not as separate function
+// arguments, so the test code stays readable when new
+// flags are added later. Bulk export reuses the same shape
+// because the filter knobs apply to both modes identically.
 type exportOpts struct {
 	noTools, noThinking, noMeta bool
 	outPath                     string
 }
 
-// runExport is the actual work of the export subcommand, separated
-// from the cobra wiring so tests can call it with a fake App. It
-// reads the session, applies the filters the user asked for,
-// renders Markdown, and writes the result.
+// runExport is the actual work of the single-session export
+// subcommand, separated from the cobra wiring so tests can
+// call it with a fake App. It reads the session, applies
+// the filters the user asked for, renders Markdown, and
+// writes the result.
 func runExport(app *composition.App, id contracts.SessionID, opts exportOpts, stdout io.Writer) error {
 	conv, err := app.ReadSession(id)
 	if err != nil {
@@ -77,4 +117,74 @@ func runExport(app *composition.App, id contracts.SessionID, opts exportOpts, st
 	}
 	fmt.Fprintf(os.Stderr, "Wrote %d bytes to %s\n", len(md), opts.outPath)
 	return nil
+}
+
+// runBulkExport handles `chronicle export --bulk`. It
+// validates the destination, creates it if missing, and
+// streams sessions out through composition's BulkExport
+// callback. The progress and summary lines go to stderr so
+// stdout stays free in case a future flag wants to dump
+// the manifest there for piping.
+func runBulkExport(app *composition.App, projectID contracts.ProjectID, providerName string, opts exportOpts, stderr io.Writer) error {
+	if opts.outPath == "" {
+		return fail("bulk export requires -o <directory>")
+	}
+	if err := os.MkdirAll(opts.outPath, 0o755); err != nil {
+		return fail("create destination %s: %v", opts.outPath, err)
+	}
+
+	bulkOpts := composition.BulkExportOptions{
+		Provider:     providerName,
+		HideTools:    opts.noTools,
+		HideThinking: opts.noThinking,
+		HideMeta:     opts.noMeta,
+	}
+
+	var totalBytes int64
+	count, err := app.BulkExport(projectID, bulkOpts, func(entry composition.BulkExportEntry) error {
+		filename := bulkExportFilename(entry)
+		full := filepath.Join(opts.outPath, filename)
+		if err := os.WriteFile(full, []byte(entry.Content), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", full, err)
+		}
+		totalBytes += int64(len(entry.Content))
+		return nil
+	})
+	if err != nil {
+		return bulkExportFailure(projectID, err)
+	}
+	fmt.Fprintf(stderr, "Wrote %d session(s) (%s) to %s\n",
+		count, composition.HumanBytes(totalBytes), opts.outPath)
+	return nil
+}
+
+// bulkExportFilename builds the per-session filename.
+// Prefixing with the start date means a plain `ls` shows
+// the directory in chronological order, which matches how
+// users think about session histories. We fall back to the
+// session id alone when the start timestamp is missing
+// (older sessions or hand-edited fixtures), so the output
+// always has a stable filename even when one piece of
+// metadata is absent.
+func bulkExportFilename(entry composition.BulkExportEntry) string {
+	if entry.StartedAt.IsZero() {
+		return string(entry.SessionID) + ".md"
+	}
+	return entry.StartedAt.UTC().Format("2006-01-02") + "_" + string(entry.SessionID) + ".md"
+}
+
+// bulkExportFailure translates the composition-layer error
+// into a user-facing message. We branch on the two
+// sentinel errors so the user sees actionable guidance
+// instead of a wrapped chain that ends in
+// "fs.ErrNotExist".
+func bulkExportFailure(projectID contracts.ProjectID, err error) error {
+	switch {
+	case errors.Is(err, composition.ErrProjectAmbiguous):
+		return fail("project %q exists in more than one provider. Pass --provider to choose one.", projectID)
+	case errors.Is(err, fs.ErrNotExist):
+		return fail("project %q not found. Use `chronicle list` to see what is available.", projectID)
+	default:
+		return fail("bulk export: %v", err)
+	}
 }
