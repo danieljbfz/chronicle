@@ -152,6 +152,17 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 	// data exactly where it started.
 	var completed []completedMove
 
+	// fail rolls back any moves we have completed, removes the
+	// half-built entry directory, and returns the error to the
+	// caller. Every failure site below routes through here, so
+	// the rollback discipline lives in one place instead of
+	// being copied alongside every error path.
+	fail := func(err error) (TrashEntry, error) {
+		rollbackMoves(completed)
+		os.RemoveAll(entryDir) //nolint:errcheck // best-effort cleanup after a real failure
+		return TrashEntry{}, err
+	}
+
 	for _, item := range planned.plan.Items {
 		original := filepath.Join(planned.provider.Root, item.Path)
 		if _, err := os.Lstat(original); err != nil {
@@ -162,22 +173,16 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 				// normal race rather than a real failure.
 				continue
 			}
-			rollbackMoves(completed)
-			os.RemoveAll(entryDir) //nolint:errcheck // best-effort cleanup after a real failure
-			return TrashEntry{}, fmt.Errorf("trash: stat %s: %w", original, err)
+			return fail(fmt.Errorf("trash: stat %s: %w", original, err))
 		}
 
 		relative := filepath.ToSlash(item.Path)
 		trashed := filepath.Join(filesDir, item.Path)
 		if err := os.MkdirAll(filepath.Dir(trashed), 0o755); err != nil {
-			rollbackMoves(completed)
-			os.RemoveAll(entryDir) //nolint:errcheck
-			return TrashEntry{}, fmt.Errorf("trash: prepare destination: %w", err)
+			return fail(fmt.Errorf("trash: prepare destination: %w", err))
 		}
 		if err := moveFileOrDir(original, trashed); err != nil {
-			rollbackMoves(completed)
-			os.RemoveAll(entryDir) //nolint:errcheck
-			return TrashEntry{}, fmt.Errorf("trash: move %s: %w", original, err)
+			return fail(fmt.Errorf("trash: move %s: %w", original, err))
 		}
 		completed = append(completed, completedMove{original: original, trashed: trashed})
 
@@ -194,9 +199,7 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 	// back so the trash directory does not contain an entry
 	// without a manifest (which would be unrestorable).
 	if err := writeManifest(entryDir, entry); err != nil {
-		rollbackMoves(completed)
-		os.RemoveAll(entryDir) //nolint:errcheck
-		return TrashEntry{}, fmt.Errorf("trash: write manifest: %w", err)
+		return fail(fmt.Errorf("trash: write manifest: %w", err))
 	}
 
 	return entry, nil
