@@ -182,12 +182,27 @@ multiple review passes to get there.
 The shape of the work is **research, plan, execute, review,
 repeat**.
 
-1. **Research.** Before writing code, read what is already there.
-   Read the relevant adapter, the relevant composition method,
-   the relevant CLI subcommand. Read at least one similar project
-   on the open web for context (Bubble Tea apps for the TUI, Go
-   templ-or-HTMX style web apps for the frontend), but treat
-   those as inspiration, not as templates to copy.
+1. **Research.** Before writing code, learn what is already in
+   the project and what is inside the libraries you plan to use.
+   Inside the project, read the relevant adapter, the relevant
+   composition method, and the relevant CLI subcommand, so you
+   know what already exists and what shape it has. For each
+   library, read the official documentation from start to finish
+   for the parts you will touch. Pay attention to the idiomatic
+   patterns the maintainers recommend, the trade-offs they chose
+   when they designed the API, the edge cases the docs call out
+   (concurrency, lifecycle, performance, error handling), and the
+   limits of what each library will do for you. A few hours spent
+   learning a library properly saves a week of debugging a misuse
+   you would never have made if you had read the docs first. Note
+   the open questions you cannot answer from the docs alone, and
+   write a tiny throwaway program if you need to confirm a
+   suspicion. After the docs, read at least one well-regarded
+   project that uses the same libraries (a Bubble Tea app for the
+   TUI, a Go web app using templ and HTMX for the frontend), so
+   you see how a real project wires the pieces together. Treat
+   those reference projects as inspiration rather than as
+   templates you copy.
 2. **Plan.** Surface the plan to the user before you implement.
    Name the files you will create, the methods you will add, the
    contracts you will rely on. Identify the trade-offs you are
@@ -252,11 +267,61 @@ Recommended stack:
 
 These three libraries are the de facto standard for Go terminal
 applications in 2026, and the community has built dozens of polished
-apps on top of them. Before you write your first screen, read at
-least one well-regarded Bubble Tea app from start to finish so you
-have a working mental model of how the pieces fit together. The
-`glow` Markdown reader and the `gh-dash` GitHub dashboard are both
-good references.
+apps on top of them.
+
+Read the official documentation for each library before you write
+your first screen. Bubble Tea follows a particular Elm-style
+architecture that does not accept arbitrary mutation in the middle
+of a screen, and knowing the rules in advance saves you from
+discovering them through a broken test. lipgloss has its own ideas
+about how a style value composes with another style value, and the
+rules are not the same as a CSS cascade. The bubbles components
+each expose their own message types that you need to forward
+through your model's `Update` method correctly, or the component
+will look frozen. Find the edge cases the docs mention (terminal
+resize, paste handling, focus on multi-pane layouts, exit cleanup)
+and decide how each screen will handle them before you build the
+screen.
+
+After the docs, read at least one well-regarded Bubble Tea app
+from start to finish so you see how a real project wires the
+pieces together. The `glow` Markdown reader and the `gh-dash`
+GitHub dashboard are both good references.
+
+#### Testing and interacting with the TUI
+
+A TUI does not have an integrated automation tool the way the web
+has Playwright, but two complementary approaches together cover
+the same ground.
+
+The first approach is `teatest`, the official test harness for
+Bubble Tea that lives at
+[`github.com/charmbracelet/x/exp/teatest`](https://github.com/charmbracelet/x/tree/main/exp/teatest).
+The package runs your `tea.Model` in process, sends synthetic key
+events into it, captures the rendered frames, and lets you assert
+on either the model state or the visible output. Use `teatest`
+for the unit-level test that pins one screen's contract. A test
+that says "press `j` three times on the session list, then press
+Enter, and the transcript view shows the conversation that was
+under the cursor" is the shape `teatest` is built for. Every
+screen should have at least one of these.
+
+The second approach is to run the real binary in a pseudo-terminal
+and drive it from outside. The working pattern is to spawn
+`chronicle` inside `tmux`, send keystrokes with `tmux send-keys`,
+and capture the rendered screen with `tmux capture-pane -p`. The
+next session's model has `Bash`, `run_in_background`, and the
+ability to read process output, so the loop "start the TUI, send
+a few keys, capture the screen, compare against a golden file" is
+within reach. Use this approach for the integration check that
+the binary actually runs against the user's real data the way the
+unit tests say it does. It is the closest analog the terminal has
+to a Playwright run.
+
+When you build a new screen, write the `teatest` test alongside
+the screen, and add one `tmux`-driven integration check at the
+end of the screen's task. Do not declare a screen finished without
+both.
 
 Open questions to resolve **before** building:
 
@@ -288,6 +353,48 @@ Recommended stack:
 Avoid a single-page-app architecture and a separate frontend
 build. Chronicle is a single-binary tool, and the web app should
 not break that property.
+
+Read the official documentation for templ, HTMX, and Tailwind
+before you start. templ has its own component model that compiles
+to Go code, with rules around imports and around how a component
+calls another component, and a quick read through the official
+guide saves you from learning those rules through compiler
+errors. HTMX has a small but precise vocabulary of HTML
+attributes (`hx-get`, `hx-post`, `hx-target`, `hx-swap`, and a
+few more), and the docs explain exactly when each one fires and
+what the server is expected to return. Tailwind's utility-class
+approach rewards a careful read through the docs before you write
+any markup, because the right utility is almost always already
+there and inventing your own CSS alongside Tailwind makes the
+result hard to maintain. Each of the three libraries is small
+enough that a careful read fits in a single sitting.
+
+After the docs, find one or two well-regarded Go web apps that
+use the same stack and read them end to end. The patterns the
+authors picked for templating, for HTMX routing, and for static
+asset embedding are usually worth borrowing.
+
+#### Testing and interacting with the web app
+
+The web app has the easier story. Unit tests cover each HTTP
+handler with `httptest.NewServer` and `httptest.NewRequest`,
+which are both in the standard library. Integration tests use
+Playwright through the
+[`playwright-go`](https://github.com/playwright-community/playwright-go)
+bindings, which start a real headless browser, drive the
+application through clicks and keystrokes, and let the test
+assert on the rendered DOM.
+
+The next session's model has the Playwright MCP server already
+available, so it can drive the running web app directly during
+development. Use the MCP integration for exploratory work and
+the `playwright-go` library for the test suite that runs in CI.
+
+The split between unit and integration tests on the web side
+follows the same rule as the TUI. Every handler has a unit test
+that pins the contract (status code, headers, returned fragment
+shape). Every user-facing flow that crosses more than one handler
+gets a Playwright run that walks the flow end to end.
 
 Open questions to resolve **before** building:
 
