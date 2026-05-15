@@ -13,8 +13,11 @@ package composition
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
+	"strings"
 
+	"github.com/BurntSushi/toml"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/danieljbfz/chronicle/adapters"
@@ -240,3 +243,23 @@ func (a *App) Settings() config.Config { return a.settings }
 // command and the trash command use this to show or operate on
 // chronicle's own directories.
 func (a *App) Locations() paths.Locations { return a.locations }
+
+// SettingsTOML returns the resolved config rendered as TOML, the
+// same format the user's config file uses on disk. The output is
+// what `chronicle config show` prints. Defaults plus any
+// file-level overrides are merged before rendering, so the
+// reader sees the actual values chronicle is using right now,
+// not just what they wrote in their file.
+//
+// We render through the same TOML library that loads the file,
+// so the output round-trips: the user can pipe it back into
+// their config file and get the same Config back. The library
+// preserves struct order, which keeps the output stable across
+// invocations.
+func (a *App) SettingsTOML() (string, error) {
+	var buf strings.Builder
+	if err := toml.NewEncoder(&buf).Encode(a.settings); err != nil {
+		return "", fmt.Errorf("config show: %w", err)
+	}
+	return buf.String(), nil
+}

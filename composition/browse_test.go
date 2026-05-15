@@ -5,7 +5,10 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/danieljbfz/chronicle/contracts"
+	"github.com/danieljbfz/chronicle/internal/config"
 )
 
 // fakeProvider is the test-side stand-in for a real adapter. It
@@ -88,6 +91,40 @@ func TestApp_ReadSession_unknownIdReturnsNotExist(t *testing.T) {
 }
 
 // TestDoctor_addsWarningForUnknownVersion proves the doctor view
+// TestSettingsTOML_roundTripsThroughTheDecoder pins the
+// most important property of the rendered output: a user
+// who pipes `chronicle config show` back into their config
+// file should get the same Config back. The test renders
+// the defaults, decodes the result, and confirms the trash
+// retention value (a representative scalar) and the
+// providers map (the part the audit pass refactored)
+// survive the round trip.
+func TestSettingsTOML_roundTripsThroughTheDecoder(t *testing.T) {
+	a := newAppWithFakes(&fakeProvider{name: "claude"})
+	a.settings = config.Defaults()
+	rendered, err := a.SettingsTOML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rendered == "" {
+		t.Fatal("SettingsTOML returned an empty string")
+	}
+
+	var decoded config.Config
+	if _, err := toml.Decode(rendered, &decoded); err != nil {
+		t.Fatalf("rendered TOML did not decode: %v\n---\n%s", err, rendered)
+	}
+	if decoded.Trash.RetentionDays != 30 {
+		t.Errorf("RetentionDays = %d, want 30", decoded.Trash.RetentionDays)
+	}
+	if !decoded.Providers[config.ProviderClaude].Enabled {
+		t.Error("Claude should be enabled in the round-tripped config")
+	}
+	if !decoded.Providers[config.ProviderCopilot].Enabled {
+		t.Error("Copilot should be enabled in the round-tripped config")
+	}
+}
+
 // records a warning when the storage version is unknown. The user
 // reads warnings in the doctor output, and the cleanup commands
 // use the same fact (Version == "unknown") to require an extra
