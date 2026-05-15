@@ -213,6 +213,27 @@ func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Co
 	return readSessionFile(root, file, p.cached)
 }
 
+// projectFolderFromSessionPath pulls the encoded project folder
+// name out of a session file path. The path layout is
+// "projects/<folder>/<id>.jsonl", so the folder name is the
+// directory immediately under projectsDir. We split through the
+// path package to keep the logic portable across operating systems
+// that disagree about separators.
+//
+// The function falls back to the file's basename without the
+// .jsonl suffix if the path does not have the expected shape. The
+// fallback only fires for hand-edited fixtures or for a future
+// structural change in the storage format. It exists so the result
+// is always a non-empty string the caller can render, even when
+// the input is malformed.
+func projectFolderFromSessionPath(sessionFile string) string {
+	rest := strings.TrimPrefix(sessionFile, projectsDir+"/")
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		return rest[:i]
+	}
+	return path.Base(strings.TrimSuffix(sessionFile, ".jsonl"))
+}
+
 // locateSessionFile walks the projects tree and returns the path
 // of the .jsonl file whose name matches the session identifier.
 // We scan the tree linearly and do not build an index. Session

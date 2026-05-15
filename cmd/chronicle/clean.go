@@ -129,10 +129,10 @@ func runClean(app *composition.App, planned []composition.PlannedDeletion, apply
 	}
 
 	fmt.Fprintf(stdout, "Found %d session(s) to clean (%s total).\n\n",
-		len(planned), humanBytes(totalBytes))
+		len(planned), composition.HumanBytes(totalBytes))
 	for _, pd := range planned {
 		fmt.Fprintf(stdout, "  %s/%s  (%s)\n",
-			pd.ProviderName(), pd.Plan.SessionID, humanBytes(pd.Plan.SizeBytes))
+			pd.ProviderName(), pd.Plan.SessionID, composition.HumanBytes(pd.Plan.SizeBytes))
 		for _, item := range pd.Plan.Items {
 			fmt.Fprintf(stdout, "    - %-22s %s\n", item.Reason, item.Path)
 		}
@@ -153,24 +153,4 @@ func runClean(app *composition.App, planned []composition.PlannedDeletion, apply
 		fmt.Fprintf(os.Stderr, "  %s\n", entry.ID)
 	}
 	return nil
-}
-
-// humanBytes turns a byte count into a short human-readable
-// string. We keep our own copy here, even though composition
-// has a near-identical helper, because the composition copy is
-// an internal detail of the trash subsystem. Exporting it just
-// to share five lines of formatting code would mean the CLI
-// reaches into composition's presentation layer, which is the
-// wrong direction for the dependency arrow.
-func humanBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%dB", n)
-	}
-	div, exp := int64(unit), 0
-	for v := n / unit; v >= unit; v /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f%cB", float64(n)/float64(div), "KMGTPE"[exp])
 }

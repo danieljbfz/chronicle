@@ -132,25 +132,3 @@ func TestRunClean_emptyPlanPrintsNothingToCleanMessage(t *testing.T) {
 		t.Errorf("empty plan should say so, got: %q", buf.String())
 	}
 }
-
-// TestHumanBytes_clipPicksTheRightUnit covers the CLI's
-// copy of humanBytes. The function lives in two places
-// (composition and cmd/chronicle) so the CLI does not have
-// to import a presentation helper from the application
-// core. Both copies share the same expected output, so the
-// test cases mirror the composition version.
-func TestHumanBytes_clipPicksTheRightUnit(t *testing.T) {
-	cases := []struct {
-		n    int64
-		want string
-	}{
-		{0, "0B"},
-		{1024, "1.0KB"},
-		{int64(1.5 * 1024 * 1024), "1.5MB"},
-	}
-	for _, tc := range cases {
-		if got := humanBytes(tc.n); got != tc.want {
-			t.Errorf("humanBytes(%d) = %q, want %q", tc.n, got, tc.want)
-		}
-	}
-}

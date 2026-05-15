@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -130,5 +132,53 @@ func TestCheckWorkingDir_rejectsMissingPath(t *testing.T) {
 func TestCheckWorkingDir_acceptsTempDir(t *testing.T) {
 	if err := checkWorkingDir(t.TempDir()); err != nil {
 		t.Errorf("expected nil for an existing temp dir, got %v", err)
+	}
+}
+
+// TestResumeFailure_translatesNotFound proves the
+// fs.ErrNotExist branch turns into a friendly message that
+// points the user at chronicle list. The fail() helper
+// returns an error that wraps the printed string, so we
+// assert on the error message rather than capturing
+// stderr.
+func TestResumeFailure_translatesNotFound(t *testing.T) {
+	wrapped := fmt.Errorf("resume: %w", fs.ErrNotExist)
+	err := resumeFailure(wrapped)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "session not found") {
+		t.Errorf("err = %q, want a 'session not found' message", err)
+	}
+	if !strings.Contains(err.Error(), "chronicle list") {
+		t.Errorf("err = %q, want a 'chronicle list' hint", err)
+	}
+}
+
+// TestResumeFailure_translatesUnsupportedProvider proves
+// the ErrResumeUnsupported branch tells the user what to
+// do next ("reopen inside the underlying tool's UI").
+func TestResumeFailure_translatesUnsupportedProvider(t *testing.T) {
+	wrapped := fmt.Errorf("resume copilot: %w", composition.ErrResumeUnsupported)
+	err := resumeFailure(wrapped)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "Reopen this session") {
+		t.Errorf("err = %q, want a 'Reopen this session' hint", err)
+	}
+}
+
+// TestResumeFailure_passesThroughGenericErrors makes sure
+// an error that does not match either sentinel still
+// surfaces with a useful prefix instead of being swallowed
+// by an over-specific switch.
+func TestResumeFailure_passesThroughGenericErrors(t *testing.T) {
+	err := resumeFailure(fmt.Errorf("disk on fire"))
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "disk on fire") {
+		t.Errorf("err = %q, want it to mention the original cause", err)
 	}
 }

@@ -101,7 +101,7 @@ func (a *App) PlanCleanup(categories []CleanCategory, providerName string) ([]Pl
 		for _, category := range categories {
 			plans, err := planForCategory(p, cleaner, category)
 			if err != nil {
-				return nil, fmt.Errorf("composition.PlanCleanup: %s on %s: %w", category, p.Provider.Name(), err)
+				return nil, fmt.Errorf("clean: %s on %s: %w", category, p.Provider.Name(), err)
 			}
 			for _, plan := range plans {
 				planned = append(planned, PlannedDeletion{provider: p, Plan: plan})
@@ -210,7 +210,7 @@ func (a *App) ExecuteCleanup(planned []PlannedDeletion) ([]TrashEntry, error) {
 		}
 		entry, err := a.Trash(plannedDeletion{provider: pd.provider, plan: pd.Plan})
 		if err != nil {
-			return entries, fmt.Errorf("composition.ExecuteCleanup: %w", err)
+			return entries, fmt.Errorf("clean: %w", err)
 		}
 		entries = append(entries, entry)
 	}

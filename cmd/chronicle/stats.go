@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -64,9 +63,9 @@ func newStatsCmd() *cobra.Command {
 // often wants to know the actual start of their history.
 func writeStatsText(w io.Writer, stats composition.Stats) error {
 	fmt.Fprintln(w, "Totals")
-	fmt.Fprintf(w, "  Sessions: %s\n", humanInt(stats.Total.Sessions))
-	fmt.Fprintf(w, "  Messages: %s\n", humanInt(stats.Total.Messages))
-	fmt.Fprintf(w, "  Disk:     %s\n", humanBytes(stats.Total.SizeBytes))
+	fmt.Fprintf(w, "  Sessions: %s\n", composition.HumanInt(stats.Total.Sessions))
+	fmt.Fprintf(w, "  Messages: %s\n", composition.HumanInt(stats.Total.Messages))
+	fmt.Fprintf(w, "  Disk:     %s\n", composition.HumanBytes(stats.Total.SizeBytes))
 	if rangeLine := dateRange(stats.Total); rangeLine != "" {
 		fmt.Fprintf(w, "  Active:   %s\n", rangeLine)
 	}
@@ -77,9 +76,9 @@ func writeStatsText(w io.Writer, stats composition.Stats) error {
 		for _, p := range stats.Providers {
 			fmt.Fprintf(w, "  %s: %s sessions, %s messages, %s across %d project(s)\n",
 				p.Name,
-				humanInt(p.Aggregate.Sessions),
-				humanInt(p.Aggregate.Messages),
-				humanBytes(p.Aggregate.SizeBytes),
+				composition.HumanInt(p.Aggregate.Sessions),
+				composition.HumanInt(p.Aggregate.Messages),
+				composition.HumanBytes(p.Aggregate.SizeBytes),
 				p.Projects,
 			)
 		}
@@ -99,8 +98,8 @@ func writeStatsText(w io.Writer, stats composition.Stats) error {
 			fmt.Fprintf(w, "  %-8s  %s  (%s sessions, %s)\n",
 				proj.Provider,
 				label,
-				humanInt(proj.Aggregate.Sessions),
-				humanBytes(proj.Aggregate.SizeBytes),
+				composition.HumanInt(proj.Aggregate.Sessions),
+				composition.HumanBytes(proj.Aggregate.SizeBytes),
 			)
 		}
 		fmt.Fprintln(w)
@@ -210,34 +209,4 @@ func toAggregateJSON(a composition.Aggregate) aggregateJSON {
 		out.NewestAt = a.NewestAt.Format(time.RFC3339)
 	}
 	return out
-}
-
-// humanInt formats an integer with thousands separators so
-// the totals line stays readable at a glance. The function
-// handles negative numbers correctly even though chronicle
-// never produces them, because the cost of one if-statement
-// is less than the cost of finding out the hard way later.
-func humanInt(n int) string {
-	if n < 0 {
-		return "-" + humanInt(-n)
-	}
-	s := strconv.Itoa(n)
-	if len(s) <= 3 {
-		return s
-	}
-	// Walk the string from the right, inserting a comma
-	// every three digits. We build the result in a small
-	// byte slice so we do not allocate intermediate strings.
-	parts := make([]byte, 0, len(s)+len(s)/3)
-	first := len(s) % 3
-	if first > 0 {
-		parts = append(parts, s[:first]...)
-	}
-	for i := first; i < len(s); i += 3 {
-		if len(parts) > 0 {
-			parts = append(parts, ',')
-		}
-		parts = append(parts, s[i:i+3]...)
-	}
-	return string(parts)
 }

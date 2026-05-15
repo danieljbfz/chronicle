@@ -3,6 +3,7 @@ package composition
 import (
 	"errors"
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/danieljbfz/chronicle/contracts"
@@ -146,7 +147,7 @@ func TestResume_nonResumableProviderReturnsClearError(t *testing.T) {
 	if !errors.Is(err, ErrResumeUnsupported) {
 		t.Errorf("err = %v, want one wrapping ErrResumeUnsupported", err)
 	}
-	if !contains(err.Error(), "copilot") {
+	if !strings.Contains(err.Error(), "copilot") {
 		t.Errorf("err = %q, want it to mention the provider name", err)
 	}
 }
@@ -177,17 +178,4 @@ func TestResume_walksProvidersInRegistrationOrder(t *testing.T) {
 	if got.Plan.WorkingDir != "/from/first" {
 		t.Errorf("working dir = %q, want /from/first", got.Plan.WorkingDir)
 	}
-}
-
-// contains is a tiny test helper for substring checks. We
-// could use strings.Contains directly, but this keeps the
-// assertion sites short and removes one import line per
-// test file that uses it.
-func contains(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }

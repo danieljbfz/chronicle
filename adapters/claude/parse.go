@@ -13,18 +13,29 @@ import (
 )
 
 // readSessionFile is the entry point that turns one Claude session
-// file into a Conversation. It opens the file and hands the open
-// stream to parseStream. The split between the two functions is on
+// file into a Conversation. It opens the file, hands the open
+// stream to parseStream, and fills in the project identifier from
+// the file path. The split between the two functions is on
 // purpose. Tests can call parseStream directly with a fake reader,
 // without ever touching a real file. Production code calls
 // readSessionFile, which deals with the file part for you.
+//
+// readSessionFile is the only place that knows how the on-disk
+// path maps onto a project identifier, so parseStream stays
+// purely about parsing JSONL content and never needs a filesystem
+// path to do its work.
 func readSessionFile(root fs.FS, sessionFile string, source contracts.StorageVersion) (contracts.Conversation, error) {
 	f, err := root.Open(sessionFile)
 	if err != nil {
 		return contracts.Conversation{}, err
 	}
 	defer f.Close()
-	return parseStream(f, source)
+	conv, err := parseStream(f, source)
+	if err != nil {
+		return contracts.Conversation{}, err
+	}
+	conv.Project = contracts.ProjectID(projectFolderFromSessionPath(sessionFile))
+	return conv, nil
 }
 
 // parseStream reads JSONL from r and returns a Conversation. JSONL
@@ -134,7 +145,7 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 
 	return contracts.Conversation{
 		SessionID:    sessionID,
-		Project:      contracts.ProjectID(cwd),
+		Cwd:          cwd,
 		StartedAt:    startedAt,
 		EndedAt:      endedAt,
 		Messages:     messages,

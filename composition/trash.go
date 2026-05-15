@@ -115,18 +115,18 @@ type plannedDeletion struct {
 // normal race rather than a bug.
 func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 	if planned.provider == nil {
-		return TrashEntry{}, errors.New("composition.Trash: planned deletion has no provider")
+		return TrashEntry{}, errors.New("trash: planned deletion has no provider")
 	}
 
 	entryID, err := newTrashEntryID(time.Now().UTC())
 	if err != nil {
-		return TrashEntry{}, fmt.Errorf("composition.Trash: generate id: %w", err)
+		return TrashEntry{}, fmt.Errorf("trash: generate id: %w", err)
 	}
 
 	entryDir := filepath.Join(a.locations.TrashDir, entryID)
 	filesDir := filepath.Join(entryDir, filesSubdir)
 	if err := os.MkdirAll(filesDir, 0o755); err != nil {
-		return TrashEntry{}, fmt.Errorf("composition.Trash: create entry dir: %w", err)
+		return TrashEntry{}, fmt.Errorf("trash: create entry dir: %w", err)
 	}
 
 	entry := TrashEntry{
@@ -153,7 +153,7 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 			}
 			rollbackMoves(completed)
 			os.RemoveAll(entryDir) //nolint:errcheck // best-effort cleanup after a real failure
-			return TrashEntry{}, fmt.Errorf("composition.Trash: stat %s: %w", original, err)
+			return TrashEntry{}, fmt.Errorf("trash: stat %s: %w", original, err)
 		}
 
 		relative := filepath.ToSlash(item.Path)
@@ -161,12 +161,12 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 		if err := os.MkdirAll(filepath.Dir(trashed), 0o755); err != nil {
 			rollbackMoves(completed)
 			os.RemoveAll(entryDir) //nolint:errcheck
-			return TrashEntry{}, fmt.Errorf("composition.Trash: prepare destination: %w", err)
+			return TrashEntry{}, fmt.Errorf("trash: prepare destination: %w", err)
 		}
 		if err := moveFileOrDir(original, trashed); err != nil {
 			rollbackMoves(completed)
 			os.RemoveAll(entryDir) //nolint:errcheck
-			return TrashEntry{}, fmt.Errorf("composition.Trash: move %s: %w", original, err)
+			return TrashEntry{}, fmt.Errorf("trash: move %s: %w", original, err)
 		}
 		completed = append(completed, completedMove{original: original, trashed: trashed})
 
@@ -185,7 +185,7 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 	if err := writeManifest(entryDir, entry); err != nil {
 		rollbackMoves(completed)
 		os.RemoveAll(entryDir) //nolint:errcheck
-		return TrashEntry{}, fmt.Errorf("composition.Trash: write manifest: %w", err)
+		return TrashEntry{}, fmt.Errorf("trash: write manifest: %w", err)
 	}
 
 	return entry, nil
@@ -203,12 +203,12 @@ func (a *App) Trash(planned plannedDeletion) (TrashEntry, error) {
 // entries as warnings if that becomes useful.
 func (a *App) TrashList() ([]TrashEntry, error) {
 	if err := os.MkdirAll(a.locations.TrashDir, 0o755); err != nil {
-		return nil, fmt.Errorf("composition.TrashList: ensure trash dir: %w", err)
+		return nil, fmt.Errorf("trash list: ensure trash dir: %w", err)
 	}
 
 	entries, err := os.ReadDir(a.locations.TrashDir)
 	if err != nil {
-		return nil, fmt.Errorf("composition.TrashList: read trash dir: %w", err)
+		return nil, fmt.Errorf("trash list: read trash dir: %w", err)
 	}
 
 	var out []TrashEntry
@@ -242,14 +242,14 @@ func (a *App) TrashRestore(id string) error {
 	entryDir := filepath.Join(a.locations.TrashDir, id)
 	entry, err := readManifest(entryDir)
 	if err != nil {
-		return fmt.Errorf("composition.TrashRestore: read manifest: %w", err)
+		return fmt.Errorf("trash restore: read manifest: %w", err)
 	}
 
 	// Step 1: pre-flight every destination. If any one already
 	// exists, abort before we move anything.
 	for _, item := range entry.Items {
 		if _, err := os.Lstat(item.OriginalPath); err == nil {
-			return fmt.Errorf("composition.TrashRestore: destination already exists: %s", item.OriginalPath)
+			return fmt.Errorf("trash restore: destination already exists: %s", item.OriginalPath)
 		}
 	}
 
@@ -261,10 +261,10 @@ func (a *App) TrashRestore(id string) error {
 	for _, item := range entry.Items {
 		source := filepath.Join(entryDir, filesSubdir, filepath.FromSlash(item.RelativePath))
 		if err := os.MkdirAll(filepath.Dir(item.OriginalPath), 0o755); err != nil {
-			return fmt.Errorf("composition.TrashRestore: prepare %s: %w", item.OriginalPath, err)
+			return fmt.Errorf("trash restore: prepare %s: %w", item.OriginalPath, err)
 		}
 		if err := moveFileOrDir(source, item.OriginalPath); err != nil {
-			return fmt.Errorf("composition.TrashRestore: move back %s: %w", item.OriginalPath, err)
+			return fmt.Errorf("trash restore: move back %s: %w", item.OriginalPath, err)
 		}
 	}
 
@@ -322,7 +322,7 @@ func (a *App) TrashEmpty(opts TrashEmptyOptions) ([]string, error) {
 		}
 		entryDir := filepath.Join(a.locations.TrashDir, entry.ID)
 		if err := os.RemoveAll(entryDir); err != nil {
-			return removed, fmt.Errorf("composition.TrashEmpty: remove %s: %w", entry.ID, err)
+			return removed, fmt.Errorf("trash empty: remove %s: %w", entry.ID, err)
 		}
 		removed = append(removed, entry.ID)
 	}
@@ -412,7 +412,7 @@ func (e TrashEntry) String() string {
 		e.ID,
 		e.Provider,
 		short,
-		humanBytes(e.SizeBytes),
-		humanAge(e.TrashedAt),
+		HumanBytes(e.SizeBytes),
+		HumanAge(e.TrashedAt),
 	)
 }

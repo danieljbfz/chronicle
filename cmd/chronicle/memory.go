@@ -95,7 +95,7 @@ func writeMemoryList(w io.Writer, entries []composition.MemoryListing) error {
 			entry.Provider,
 			entry.ProjectID,
 			entry.FileName,
-			humanBytes(entry.SizeBytes),
+			composition.HumanBytes(entry.SizeBytes),
 			entry.ModifiedAt,
 		)
 	}

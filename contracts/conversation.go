@@ -10,9 +10,19 @@ import "time"
 // conversation itself is intentional: the renderer can decide whether
 // to show, for example, a thread-tree view by looking at the
 // conversation alone, without having to ask the adapter again.
+//
+// Project carries the same value the SessionSummary uses for the
+// session, so callers can pair summary listings with their full
+// Conversation without having to translate the identifier. Cwd is
+// the absolute working directory the session was recorded against
+// when the upstream tool stores one. For Claude that is the path
+// the user was inside when the session started. For Copilot, which
+// keys sessions by VS Code workspace rather than by directory, Cwd
+// is empty unless the workspace's filesystem path is also known.
 type Conversation struct {
 	SessionID    SessionID
 	Project      ProjectID
+	Cwd          string
 	StartedAt    time.Time
 	EndedAt      time.Time
 	Title        string

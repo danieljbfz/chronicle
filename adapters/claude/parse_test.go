@@ -82,6 +82,25 @@ func TestParse_emptySessionIsAbandoned(t *testing.T) {
 	}
 }
 
+// TestParse_projectIsEncodedFolderAndCwdIsRawPath pins the new
+// contract for the two project-shaped fields on Conversation.
+// Project must be the encoded folder name the file lived under,
+// matching what SessionSummary already returns. Cwd must be the
+// raw working-directory string Claude wrote into the JSONL
+// records. Keeping these distinct removes the latent bug where
+// the same field carried different values depending on whether
+// the caller arrived through ListSessions or through
+// ReadSession.
+func TestParse_projectIsEncodedFolderAndCwdIsRawPath(t *testing.T) {
+	c := readSession(t, "small_session.jsonl")
+	if c.Project != "-p" {
+		t.Errorf("Project = %q, want %q (encoded folder name from the path)", c.Project, "-p")
+	}
+	if c.Cwd != "/Users/test/proj" {
+		t.Errorf("Cwd = %q, want %q (raw cwd from the JSONL records)", c.Cwd, "/Users/test/proj")
+	}
+}
+
 // TestParse_thinkingBlockSurvives proves the parser holds on to the
 // assistant's internal reasoning instead of discarding it. Hiding
 // the thinking block at render time is a UI choice. Dropping it at

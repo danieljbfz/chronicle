@@ -26,9 +26,35 @@ func TestHumanBytes_picksTheRightUnit(t *testing.T) {
 		{int64(2.5 * 1024 * 1024 * 1024), "2.5GB"},
 	}
 	for _, tc := range cases {
-		got := humanBytes(tc.n)
+		got := HumanBytes(tc.n)
 		if got != tc.want {
-			t.Errorf("humanBytes(%d) = %q, want %q", tc.n, got, tc.want)
+			t.Errorf("HumanBytes(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}
+
+// TestHumanInt_addsThousandsSeparators covers the boundary
+// cases of the integer formatter: small numbers stay
+// untouched, large numbers gain commas every three digits,
+// and the negative-number branch handles the sign cleanly.
+// This was the helper that lived alone in cmd/chronicle
+// and now belongs with its formatting siblings here.
+func TestHumanInt_addsThousandsSeparators(t *testing.T) {
+	cases := []struct {
+		in   int
+		want string
+	}{
+		{0, "0"},
+		{42, "42"},
+		{999, "999"},
+		{1000, "1,000"},
+		{12345, "12,345"},
+		{1234567, "1,234,567"},
+		{-12345, "-12,345"},
+	}
+	for _, tc := range cases {
+		if got := HumanInt(tc.in); got != tc.want {
+			t.Errorf("HumanInt(%d) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -49,14 +75,14 @@ func TestHumanAge_pinsTheTimeBuckets(t *testing.T) {
 		{now.Add(-72 * time.Hour), "3d ago"},
 	}
 	for _, tc := range cases {
-		got := humanAge(tc.past)
+		got := HumanAge(tc.past)
 		// Allow some slack on the minutes/hours/days
 		// buckets because the test clock is not frozen.
 		// The test passes when the returned string
 		// matches the expected bucket exactly OR when it
 		// is the bucket adjacent to what we expected.
 		if !strings.Contains(got, tc.want) && tc.want != got {
-			t.Errorf("humanAge(now - %v) = %q, want something like %q", time.Since(tc.past).Round(time.Second), got, tc.want)
+			t.Errorf("HumanAge(now - %v) = %q, want something like %q", time.Since(tc.past).Round(time.Second), got, tc.want)
 		}
 	}
 }

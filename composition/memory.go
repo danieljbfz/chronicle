@@ -42,7 +42,7 @@ func (a *App) ListMemories() ([]MemoryListing, error) {
 		}
 		entries, err := store.ListMemories(p.FS)
 		if err != nil {
-			return nil, fmt.Errorf("composition.ListMemories: %s: %w", p.Provider.Name(), err)
+			return nil, fmt.Errorf("memory list: %s: %w", p.Provider.Name(), err)
 		}
 		for _, entry := range entries {
 			out = append(out, MemoryListing{
@@ -77,7 +77,7 @@ func (a *App) ShowMemory(project contracts.ProjectID, fileName string, w io.Writ
 
 	data, err := os.ReadFile(full)
 	if err != nil {
-		return fmt.Errorf("composition.ShowMemory: %w", err)
+		return fmt.Errorf("memory show: %w", err)
 	}
 	_, err = w.Write(data)
 	return err
@@ -104,7 +104,7 @@ func (a *App) EditMemoryPath(project contracts.ProjectID, fileName string) (stri
 	relative := store.MemoryFilePath(project, fileName)
 	full := filepath.Join(entry.Root, relative)
 	if _, err := os.Stat(full); err != nil {
-		return "", fmt.Errorf("composition.EditMemoryPath: %w", err)
+		return "", fmt.Errorf("memory edit: %w", err)
 	}
 	return full, nil
 }
@@ -125,7 +125,7 @@ func (a *App) CleanProjectMemory(project contracts.ProjectID) (PlannedDeletion, 
 	}
 	plan, err := store.PlanDeleteProjectMemory(entry.FS, project)
 	if err != nil {
-		return PlannedDeletion{}, fmt.Errorf("composition.CleanProjectMemory: %w", err)
+		return PlannedDeletion{}, fmt.Errorf("memory clean: %w", err)
 	}
 	return PlannedDeletion{provider: entry, Plan: plan}, nil
 }

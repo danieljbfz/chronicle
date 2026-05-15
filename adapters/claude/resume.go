@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
-	"path"
-	"strings"
 
 	"github.com/danieljbfz/chronicle/contracts"
 )
@@ -103,26 +101,6 @@ func readSessionCwd(root fs.FS, sessionFile string) (string, error) {
 			return record.Cwd, nil
 		}
 	}
-}
-
-// projectFolderFromSessionPath pulls the encoded project
-// folder name out of a session file path. The path layout is
-// "projects/<folder>/<id>.jsonl", so the folder name is the
-// directory immediately under projectsDir. Splitting through
-// the path package keeps the logic portable across operating
-// systems that disagree about separators.
-func projectFolderFromSessionPath(sessionFile string) string {
-	rest := strings.TrimPrefix(sessionFile, projectsDir+"/")
-	if i := strings.IndexByte(rest, '/'); i >= 0 {
-		return rest[:i]
-	}
-	// A defensive fallback. The on-disk layout has always
-	// had the folder, so the only way to hit this branch is
-	// a future structural change in the storage format. We
-	// return the input unchanged so the decoder still
-	// produces a recognisable string instead of an empty
-	// path the caller would silently chdir into.
-	return path.Base(strings.TrimSuffix(sessionFile, ".jsonl"))
 }
 
 // Compile-time check: *Provider satisfies the optional
