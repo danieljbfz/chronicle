@@ -63,7 +63,7 @@ func (p *Provider) Detect(root fs.FS) (contracts.StorageVersion, error) {
 	if p.cacheOK {
 		return p.cached, nil
 	}
-	sv, err := Detect(root)
+	sv, err := detectInDir(root)
 	if err != nil {
 		return contracts.StorageVersion{}, err
 	}

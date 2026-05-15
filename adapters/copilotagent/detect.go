@@ -33,14 +33,18 @@ const sessionStateDir = "session-state"
 // versions land as new map entries.
 const currentVersion = "copilot-agent-1"
 
-// Detect inspects the agent's session-state directory and
-// returns a StorageVersion. The function follows the same
-// resilience contract as the other adapters: a missing
+// detectInDir inspects the agent's session-state directory
+// and returns a StorageVersion. The function follows the
+// same resilience contract as the other adapters: a missing
 // root yields a known-empty result rather than an error,
-// because a fresh-install user (or a user without the
-// agent runtime ever invoked) has no data here yet and
-// the doctor view should report that gracefully.
-func Detect(root fs.FS) (contracts.StorageVersion, error) {
+// because a fresh-install user (or a user who has never
+// invoked the agent runtime) has no data here yet, and the
+// doctor view should report that gracefully.
+//
+// The function is package-private. Callers outside the
+// package go through (*Provider).Detect, which adds the
+// in-memory caching the Provider contract expects.
+func detectInDir(root fs.FS) (contracts.StorageVersion, error) {
 	_, err := fs.Stat(root, sessionStateDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

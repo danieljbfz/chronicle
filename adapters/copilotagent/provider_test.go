@@ -54,7 +54,7 @@ func buildAgentFS() fstest.MapFS {
 // behaviour. A user with no agent activity yet should get
 // a clean "unknown" version, not an error.
 func TestDetect_emptyTreeReturnsUnknown(t *testing.T) {
-	sv, err := Detect(fstest.MapFS{})
+	sv, err := detectInDir(fstest.MapFS{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestDetect_emptyTreeReturnsUnknown(t *testing.T) {
 // happy-path detection. With a session-state directory
 // present, Detect reports the current known version.
 func TestDetect_realFixtureReportsCurrentVersion(t *testing.T) {
-	sv, err := Detect(buildAgentFS())
+	sv, err := detectInDir(buildAgentFS())
 	if err != nil {
 		t.Fatal(err)
 	}

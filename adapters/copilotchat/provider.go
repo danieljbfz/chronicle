@@ -266,8 +266,10 @@ func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Co
 		}
 		return conv, nil
 	}
-	// Unknown session id. We return the bare sentinel so the
-	// caller's errors.Is checks see the type they expect.
+	// We could not find a session file with this id in either
+	// place. The contracts.Provider documentation tells callers
+	// they can compare ReadSession's error to fs.ErrNotExist
+	// directly, so we return the sentinel without wrapping.
 	return contracts.Conversation{}, fs.ErrNotExist
 }
 
@@ -306,7 +308,8 @@ func locateInEmptyWindows(root fs.FS, id contracts.SessionID) (string, bool) {
 // Compile-time check: *Provider satisfies the base
 // contracts.Provider interface. The optional capabilities
 // declare their own assertions in the file where their
-// methods live (cleanup.go for Cleaner, and so on), so a
-// future contract change fails the build right next to the
-// methods that need updating.
+// methods live (cleanup.go for Cleaner, and so on). That
+// way, if any of those interfaces grows or changes, the
+// build fails inside the same file you would already be
+// editing to react to the change.
 var _ contracts.Provider = (*Provider)(nil)

@@ -232,11 +232,12 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Conversation, error) {
 	file, err := locateSessionFile(root, id)
 	if err != nil {
-		// locateSessionFile returns fs.ErrNotExist for an
-		// unknown session id, and the contracts.Provider doc
-		// asks ReadSession to propagate that sentinel as-is so
-		// callers can errors.Is against it. Any other error
-		// gets the operation-context wrapping.
+		// An unknown session id comes back from
+		// locateSessionFile as fs.ErrNotExist. The
+		// contracts.Provider documentation tells callers they
+		// can compare ReadSession's error to that value
+		// directly, so we return it without wrapping. Any
+		// other error gets the usual operation-context wrap.
 		if errors.Is(err, fs.ErrNotExist) {
 			return contracts.Conversation{}, err
 		}
@@ -303,7 +304,8 @@ func locateSessionFile(root fs.FS, id contracts.SessionID) (string, error) {
 //
 // The optional capabilities (Cleaner, MemoryStore,
 // GlobalMemoryStore, GlobalConfig, Resumable) each declare
-// their own assertion in the file where their methods live,
-// so a future contract change for any of them fails the build
-// right next to the methods that need to be updated.
+// their own assertion in the file where their methods live.
+// That way, if any of those interfaces grows or changes, the
+// build fails inside the same file you would already be
+// editing to react to the change.
 var _ contracts.Provider = (*Provider)(nil)
