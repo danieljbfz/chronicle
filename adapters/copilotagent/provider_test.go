@@ -301,3 +301,60 @@ func TestParse_toolStartCompletePairProducesResultBlock(t *testing.T) {
 		t.Errorf("Output = %q, want it to include the result content", found.Output)
 	}
 }
+
+// TestParse_sessionStartCarriesSelectedModel pins the
+// Model wiring on the agent side. The runtime records the
+// model once per session in session.start.selectedModel,
+// and parseEventStream surfaces that value on the resulting
+// Conversation so the stats renderer can roll it into the
+// by-model breakdown. ListSessions then carries the same
+// value onto the SessionSummary without paying the read
+// cost twice.
+func TestParse_sessionStartCarriesSelectedModel(t *testing.T) {
+	p := New()
+	if _, err := p.Detect(buildAgentFS()); err != nil {
+		t.Fatal(err)
+	}
+	conv, err := p.ReadSession(buildAgentFS(), realSessionUUID)
+	if err != nil {
+		t.Fatalf("ReadSession: %v", err)
+	}
+	if conv.Model != "claude-sonnet-4.6" {
+		t.Errorf("Conversation.Model = %q, want claude-sonnet-4.6", conv.Model)
+	}
+
+	summaries, err := p.ListSessions(buildAgentFS(), agentProjectID)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("got %d summaries, want 1", len(summaries))
+	}
+	if summaries[0].Model != "claude-sonnet-4.6" {
+		t.Errorf("SessionSummary.Model = %q, want claude-sonnet-4.6", summaries[0].Model)
+	}
+}
+
+// TestParse_missingSelectedModelLeavesModelEmpty covers the
+// fallback case. When the agent did not record a model on
+// session.start, the Conversation reports the empty string
+// and the stats renderer groups those sessions under
+// "(unknown)".
+func TestParse_missingSelectedModelLeavesModelEmpty(t *testing.T) {
+	const noModelEvents = `{"type":"session.start","data":{"sessionId":"abc","startTime":"2026-04-19T17:37:18.001Z","context":{"cwd":"/x"}},"timestamp":"2026-04-19T17:37:18.001Z","id":"e1","parentId":""}
+`
+	fsys := fstest.MapFS{
+		"session-state/abc/events.jsonl": &fstest.MapFile{Data: []byte(noModelEvents)},
+	}
+	p := New()
+	if _, err := p.Detect(fsys); err != nil {
+		t.Fatal(err)
+	}
+	conv, err := p.ReadSession(fsys, "abc")
+	if err != nil {
+		t.Fatalf("ReadSession: %v", err)
+	}
+	if conv.Model != "" {
+		t.Errorf("Conversation.Model = %q, want empty when selectedModel is missing", conv.Model)
+	}
+}

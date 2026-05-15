@@ -208,3 +208,93 @@ func TestMostFrequentModel_returnsEmptyWhenNoModelsRecorded(t *testing.T) {
 		t.Errorf("model = %q, want empty for messages without models", got)
 	}
 }
+
+// TestParse_slashCommandUserRecordIsTreatedAsMeta pins the
+// behavior that lets the listing view show a useful title
+// for sessions that begin with /clear or /compact. Claude
+// writes those records as ordinary user messages without
+// isMeta=true, and FirstUserPrompt would otherwise pick the
+// "<command-name>" markup as the session's title. The
+// parser marks them IsMeta itself so the title fallback
+// looks past them to the next real prompt.
+func TestParse_slashCommandUserRecordIsTreatedAsMeta(t *testing.T) {
+	jsonl := []byte(`{"type":"user","uuid":"u1","timestamp":"2026-05-15T10:00:00Z","message":{"role":"user","content":"<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>"}}
+{"type":"user","uuid":"u2","timestamp":"2026-05-15T10:00:01Z","message":{"role":"user","content":"actual question from the user"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-05-15T10:00:02Z","message":{"role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"reply"}]}}
+`)
+	fsys := fstest.MapFS{"projects/-p/s.jsonl": &fstest.MapFile{Data: jsonl}}
+	c, err := readSessionFile(fsys, "projects/-p/s.jsonl",
+		contracts.StorageVersion{Adapter: "claude", Version: "claude-1.0"})
+	if err != nil {
+		t.Fatalf("readSessionFile: %v", err)
+	}
+	if len(c.Messages) < 1 {
+		t.Fatalf("expected at least one user message, got %d", len(c.Messages))
+	}
+	if !c.Messages[0].IsMeta {
+		t.Error("the /clear record must be marked IsMeta so the title fallback skips it")
+	}
+	if got := c.FirstUserPrompt(); got != "actual question from the user" {
+		t.Errorf("FirstUserPrompt = %q, want the next real user message", got)
+	}
+}
+
+// TestParse_slashCommandOnlySessionIsAbandoned covers the
+// edge case where a user opens a session, runs only slash
+// commands, and never asks a real question. With the
+// detection in place, FirstUserPrompt returns the empty
+// string and IsAbandoned reports true so the cleanup
+// commands can offer to prune the session.
+func TestParse_slashCommandOnlySessionIsAbandoned(t *testing.T) {
+	jsonl := []byte(`{"type":"user","uuid":"u1","timestamp":"2026-05-15T10:00:00Z","message":{"role":"user","content":"<command-name>/clear</command-name>"}}
+`)
+	fsys := fstest.MapFS{"projects/-p/s.jsonl": &fstest.MapFile{Data: jsonl}}
+	c, err := readSessionFile(fsys, "projects/-p/s.jsonl",
+		contracts.StorageVersion{Adapter: "claude", Version: "claude-1.0"})
+	if err != nil {
+		t.Fatalf("readSessionFile: %v", err)
+	}
+	if !c.IsAbandoned() {
+		t.Error("a session whose only user input is a slash command must read as abandoned")
+	}
+	if got := c.FirstUserPrompt(); got != "" {
+		t.Errorf("FirstUserPrompt = %q, want empty for a slash-command-only session", got)
+	}
+}
+
+// TestParse_assistantRecordCarriesModelOntoMessage confirms
+// the per-message Model wiring the by-model summary depends
+// on. Claude records the model identifier on every
+// assistant record, the parser copies it through, and the
+// session-level summary is then the most-frequent value.
+func TestParse_assistantRecordCarriesModelOntoMessage(t *testing.T) {
+	jsonl := []byte(`{"type":"user","uuid":"u1","timestamp":"2026-05-15T10:00:00Z","message":{"role":"user","content":"hi"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-05-15T10:00:01Z","message":{"role":"assistant","model":"claude-opus-4-7","content":[{"type":"text","text":"reply"}]}}
+{"type":"assistant","uuid":"a2","timestamp":"2026-05-15T10:00:02Z","message":{"role":"assistant","model":"claude-opus-4-7","content":[{"type":"text","text":"again"}]}}
+{"type":"assistant","uuid":"a3","timestamp":"2026-05-15T10:00:03Z","message":{"role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"once"}]}}
+`)
+	fsys := fstest.MapFS{"projects/-p/s.jsonl": &fstest.MapFile{Data: jsonl}}
+	c, err := readSessionFile(fsys, "projects/-p/s.jsonl",
+		contracts.StorageVersion{Adapter: "claude", Version: "claude-1.0"})
+	if err != nil {
+		t.Fatalf("readSessionFile: %v", err)
+	}
+	if c.Model != "claude-opus-4-7" {
+		t.Errorf("Conversation.Model = %q, want claude-opus-4-7 (the most frequent)", c.Model)
+	}
+	var assistantModels []string
+	for _, m := range c.Messages {
+		if m.Role == contracts.RoleAssistant {
+			assistantModels = append(assistantModels, m.Model)
+		}
+	}
+	want := []string{"claude-opus-4-7", "claude-opus-4-7", "claude-sonnet-4-6"}
+	if len(assistantModels) != len(want) {
+		t.Fatalf("got %d assistant messages, want %d", len(assistantModels), len(want))
+	}
+	for i, w := range want {
+		if assistantModels[i] != w {
+			t.Errorf("assistant[%d].Model = %q, want %q", i, assistantModels[i], w)
+		}
+	}
+}

@@ -119,3 +119,44 @@ func TestParse_syntheticFutureKeepsUnknowns(t *testing.T) {
 		t.Error("unknown response part must surface as an UnknownBlock")
 	}
 }
+
+// TestParse_inputStateSelectedModelLandsOnConversation pins
+// the Model wiring on the copilot-chat side. VS Code stores
+// the user's per-session model pick at
+// inputState.selectedModel.identifier, and parseSnapshot
+// surfaces that value on the resulting Conversation so the
+// stats renderer can roll it into the by-model breakdown.
+func TestParse_inputStateSelectedModelLandsOnConversation(t *testing.T) {
+	state := map[string]any{
+		"sessionId":       "s1",
+		"creationDate":    float64(1700000000000),
+		"lastMessageDate": float64(1700000000000),
+		"customTitle":     "",
+		"inputState": map[string]any{
+			"selectedModel": map[string]any{
+				"identifier": "copilot/claude-sonnet-4.6",
+			},
+		},
+	}
+	conv := parseSnapshot(state, "ws", contracts.StorageVersion{Adapter: "copilot"})
+	if conv.Model != "copilot/claude-sonnet-4.6" {
+		t.Errorf("Conversation.Model = %q, want copilot/claude-sonnet-4.6", conv.Model)
+	}
+}
+
+// TestParse_missingSelectedModelLeavesModelEmpty covers the
+// fallback case. When the snapshot does not carry the
+// nested identifier, the Conversation reports the empty
+// string and the stats renderer groups the session under
+// "(unknown)".
+func TestParse_missingSelectedModelLeavesModelEmpty(t *testing.T) {
+	state := map[string]any{
+		"sessionId":       "s1",
+		"creationDate":    float64(1700000000000),
+		"lastMessageDate": float64(1700000000000),
+	}
+	conv := parseSnapshot(state, "ws", contracts.StorageVersion{Adapter: "copilot"})
+	if conv.Model != "" {
+		t.Errorf("Conversation.Model = %q, want empty when inputState is missing", conv.Model)
+	}
+}

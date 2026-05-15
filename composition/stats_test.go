@@ -312,3 +312,86 @@ func TestStats_dateRangeIgnoresZeroValues(t *testing.T) {
 		t.Errorf("newest = %v, want 2025-06-02", stats.Total.NewestAt)
 	}
 }
+
+// TestStats_byModelBucketsAcrossProvidersAndSortsByCount
+// covers the end-to-end model-breakdown plumbing the
+// `chronicle stats --by-model` view consumes. Two providers
+// contribute sessions tagged with overlapping and unique
+// model identifiers, and the result has to:
+//
+//   - bucket sessions by Model regardless of which provider
+//     produced them, so a model that appears in two
+//     providers shows up as one row with the merged totals.
+//   - sort buckets by session count descending, then by name
+//     ascending for deterministic ties.
+//   - keep sessions whose Model is the empty string in their
+//     own bucket so the CLI can render them as "(unknown)".
+func TestStats_byModelBucketsAcrossProvidersAndSortsByCount(t *testing.T) {
+	claudeFake := &statsFake{
+		name:     "claude",
+		projects: []contracts.Project{{ID: "p1", DisplayName: "p1"}},
+		sessions: map[contracts.ProjectID][]contracts.SessionSummary{
+			"p1": {
+				{ID: "s1", TurnCount: 10, SizeBytes: 1000, Model: "opus", StartedAt: at(2026, 1, 1), LastActive: at(2026, 1, 2)},
+				{ID: "s2", TurnCount: 20, SizeBytes: 2000, Model: "opus", StartedAt: at(2026, 1, 3), LastActive: at(2026, 1, 4)},
+				{ID: "s3", TurnCount: 5, SizeBytes: 500, Model: "sonnet", StartedAt: at(2026, 1, 5), LastActive: at(2026, 1, 6)},
+				{ID: "s4", TurnCount: 1, SizeBytes: 100, Model: "", StartedAt: at(2026, 1, 7), LastActive: at(2026, 1, 8)},
+			},
+		},
+	}
+	copilotFake := &statsFake{
+		name:     "copilot",
+		projects: []contracts.Project{{ID: "p2", DisplayName: "p2"}},
+		sessions: map[contracts.ProjectID][]contracts.SessionSummary{
+			"p2": {
+				{ID: "s5", TurnCount: 7, SizeBytes: 700, Model: "opus", StartedAt: at(2026, 2, 1), LastActive: at(2026, 2, 2)},
+				{ID: "s6", TurnCount: 3, SizeBytes: 300, Model: "gpt-5", StartedAt: at(2026, 2, 3), LastActive: at(2026, 2, 4)},
+			},
+		},
+	}
+	app := makeStatsApp(t, claudeFake, copilotFake)
+
+	got, err := app.Stats(StatsOptions{})
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+
+	want := []ModelStats{
+		{Model: "opus", Aggregate: Aggregate{Sessions: 3, Messages: 37, SizeBytes: 3700}},
+		{Model: "", Aggregate: Aggregate{Sessions: 1, Messages: 1, SizeBytes: 100}},
+		{Model: "gpt-5", Aggregate: Aggregate{Sessions: 1, Messages: 3, SizeBytes: 300}},
+		{Model: "sonnet", Aggregate: Aggregate{Sessions: 1, Messages: 5, SizeBytes: 500}},
+	}
+	if len(got.ByModel) != len(want) {
+		t.Fatalf("ByModel has %d rows, want %d", len(got.ByModel), len(want))
+	}
+	for i, w := range want {
+		if got.ByModel[i].Model != w.Model {
+			t.Errorf("ByModel[%d].Model = %q, want %q", i, got.ByModel[i].Model, w.Model)
+		}
+		if got.ByModel[i].Aggregate.Sessions != w.Aggregate.Sessions {
+			t.Errorf("ByModel[%d].Sessions = %d, want %d", i, got.ByModel[i].Aggregate.Sessions, w.Aggregate.Sessions)
+		}
+		if got.ByModel[i].Aggregate.Messages != w.Aggregate.Messages {
+			t.Errorf("ByModel[%d].Messages = %d, want %d", i, got.ByModel[i].Aggregate.Messages, w.Aggregate.Messages)
+		}
+		if got.ByModel[i].Aggregate.SizeBytes != w.Aggregate.SizeBytes {
+			t.Errorf("ByModel[%d].SizeBytes = %d, want %d", i, got.ByModel[i].Aggregate.SizeBytes, w.Aggregate.SizeBytes)
+		}
+	}
+}
+
+// TestStats_byModelIsNilWhenNoSessions confirms the empty
+// shape the CLI relies on. An install with no sessions
+// produces a nil ByModel slice, so the renderer can skip
+// the section entirely without a special-case length check.
+func TestStats_byModelIsNilWhenNoSessions(t *testing.T) {
+	app := makeStatsApp(t, &statsFake{name: "claude"})
+	got, err := app.Stats(StatsOptions{})
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if got.ByModel != nil {
+		t.Errorf("ByModel = %+v, want nil for an empty install", got.ByModel)
+	}
+}
