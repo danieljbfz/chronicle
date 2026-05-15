@@ -52,6 +52,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newCopyCmd())
 	cmd.AddCommand(newDoctorCmd())
 	cmd.AddCommand(newSearchCmd())
+	cmd.AddCommand(newStatsCmd())
 	cmd.AddCommand(newCleanCmd())
 	cmd.AddCommand(newTrashCmd())
 	cmd.AddCommand(newMemoryCmd())
