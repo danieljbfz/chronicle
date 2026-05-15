@@ -17,6 +17,7 @@ import (
 	"os"
 
 	"github.com/danieljbfz/chronicle/adapters/claude"
+	"github.com/danieljbfz/chronicle/adapters/copilot"
 	"github.com/danieljbfz/chronicle/contracts"
 	"github.com/danieljbfz/chronicle/internal/config"
 	"github.com/danieljbfz/chronicle/internal/paths"
@@ -33,13 +34,13 @@ type Entry struct {
 	FS       fs.FS
 }
 
-// Factory builds an Entry from the user's config and the resolved
-// filesystem paths. It returns ok=false when the provider is
-// disabled in config or when its data root is missing on disk. The
-// application core skips factories that return ok=false, so the
-// rest of chronicle never has to check whether a provider is
-// available.
-type Factory func(config.Config, paths.Locations) (Entry, bool)
+// Factory builds zero or more Entry values from the user's config
+// and the resolved filesystem paths. Most factories return a single
+// Entry. Some return several (the Copilot factory returns one Entry
+// per detected install, because the user might have both VS Code
+// and VS Code Insiders). A factory that returns nil means the
+// provider is disabled or has no data on this machine.
+type Factory func(config.Config, paths.Locations) []Entry
 
 // All returns every registered provider factory. This is the single
 // place chronicle looks to discover which providers it knows about.
@@ -47,29 +48,60 @@ type Factory func(config.Config, paths.Locations) (Entry, bool)
 func All() []Factory {
 	return []Factory{
 		claudeFactory,
-		// Future plans add copilotFactory, cursorFactory,
-		// antigravityFactory, and so on. Each new line is one
-		// import above and one entry here, with no other change to
-		// the rest of chronicle.
+		copilotFactory,
+		// Future plans add cursorFactory, antigravityFactory, and
+		// so on. Each new line is one import above and one entry
+		// here, with no other change to the rest of chronicle.
 	}
 }
 
 // claudeFactory builds the Claude adapter from the user's config.
-// It returns ok=false when the user has disabled the Claude
-// provider in their config file. When no explicit root is set in
-// the config, it falls back to the default ~/.claude location
-// resolved by the paths package.
-func claudeFactory(settings config.Config, locations paths.Locations) (Entry, bool) {
+// It returns nil when the user has disabled the Claude provider in
+// their config file. When no explicit root is set in the config, it
+// falls back to the default ~/.claude location resolved by the
+// paths package.
+func claudeFactory(settings config.Config, locations paths.Locations) []Entry {
 	if !settings.Providers.Claude.Enabled {
-		return Entry{}, false
+		return nil
 	}
 	root := settings.Providers.Claude.Root
 	if root == "" {
 		root = locations.ClaudeRoot
 	}
-	return Entry{
+	return []Entry{{
 		Provider: claude.New(),
 		Root:     root,
 		FS:       os.DirFS(root),
-	}, true
+	}}
+}
+
+// copilotFactory builds one Entry per Copilot root that exists on
+// disk. The user's config provides the candidate roots (defaulting
+// to the macOS VS Code and VS Code Insiders locations), and we
+// silently skip any root that is missing. The user might have only
+// VS Code installed, or only VS Code Insiders, or both. Each
+// surviving root gets its own Provider value so each one keeps its
+// own cached storage version.
+func copilotFactory(settings config.Config, locations paths.Locations) []Entry {
+	if !settings.Providers.Copilot.Enabled {
+		return nil
+	}
+	roots := settings.Providers.Copilot.Roots
+	if len(roots) == 0 {
+		roots = locations.CopilotRoots
+	}
+
+	var entries []Entry
+	for _, root := range roots {
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		entries = append(entries, Entry{
+			Provider: copilot.New(),
+			Root:     root,
+			FS:       os.DirFS(root),
+		})
+	}
+	return entries
 }

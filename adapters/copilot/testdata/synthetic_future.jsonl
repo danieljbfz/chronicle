@@ -1,0 +1,4 @@
+{"kind":0,"v":{"version":99,"sessionId":"future-1","creationDate":1778421624361,"lastMessageDate":1778421624361,"responderUsername":"GitHub Copilot","initialLocation":"panel","requests":[]}}
+{"kind":1,"k":["customTitle"],"v":"A title from the future"}
+{"kind":42,"k":["something"],"v":{"weird":"new event kind no version of chronicle understands"}}
+{"kind":2,"k":["requests"],"v":{"requestId":"req-1","timestamp":1778421700000,"message":{"parts":[{"kind":"text","text":"hello"}]},"response":[{"kind":"galaxy_brain","payload":{"insight":42}}]}}

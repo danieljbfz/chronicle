@@ -63,15 +63,13 @@ func New() (*App, error) {
 	a := &App{settings: settings, locations: locations}
 
 	for _, factory := range adapters.All() {
-		entry, ok := factory(settings, locations)
-		if !ok {
-			continue
+		for _, entry := range factory(settings, locations) {
+			a.providers = append(a.providers, &providerEntry{
+				Provider: entry.Provider,
+				Root:     entry.Root,
+				FS:       entry.FS,
+			})
 		}
-		a.providers = append(a.providers, &providerEntry{
-			Provider: entry.Provider,
-			Root:     entry.Root,
-			FS:       entry.FS,
-		})
 	}
 
 	for _, p := range a.providers {

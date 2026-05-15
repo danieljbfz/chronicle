@@ -1,0 +1,4 @@
+{"kind":0,"v":{"version":3,"sessionId":"small-session-1","creationDate":1778421624361,"lastMessageDate":1778421624361,"responderUsername":"","initialLocation":"panel","requests":[],"pendingRequests":[]}}
+{"kind":1,"k":["responderUsername"],"v":"GitHub Copilot"}
+{"kind":2,"k":["requests"],"v":{"requestId":"req-1","timestamp":1778421700000,"message":{"parts":[{"kind":"text","text":"How do I read a file in Go?"}]},"response":[{"kind":"markdown","value":{"value":"Use os.ReadFile from the standard library."}},{"kind":"toolInvocation","toolName":"runCommand","toolCallId":"tc-1","parameters":{"cmd":"go doc os.ReadFile"}}]}}
+{"kind":1,"k":["lastMessageDate"],"v":1778421701000}

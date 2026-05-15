@@ -11,7 +11,7 @@ The architecture follows the Hexagonal pattern, also called Ports and Adapters o
 | Concept | Where it lives |
 |---|---|
 | The port (the contract every reader has to satisfy) | `contracts/Provider` |
-| The adapters (one per upstream tool) | `adapters/claude/`, future `adapters/copilot/`, ... |
+| The adapters (one per upstream tool) | `adapters/claude/`, `adapters/copilot/`, future `adapters/cursor/`, ... |
 | The application core (orchestrates the adapters) | `composition/` |
 | The pure transforms (filter, render, fingerprint) | `steps/` |
 | The driving sides (the CLI today, TUI and web later) | `cmd/chronicle/` |
@@ -70,7 +70,7 @@ One folder per upstream tool, plus a registry that ties them all together.
 
 | File | Job |
 |---|---|
-| `all.go` | The provider registry. The `All()` function returns one `Factory` per provider. Adding a new tool to chronicle is a one-line edit here plus a new sibling folder. |
+| `all.go` | The provider registry. The `All()` function returns one `Factory` per provider. Adding a new tool to chronicle is a one-line edit here plus a new sibling folder. The Copilot factory returns one `Entry` per detected install (regular VS Code, VS Code Insiders), so `Factory` returns a slice instead of a single `Entry`. |
 
 ### `adapters/claude/`
 
@@ -89,6 +89,25 @@ The Claude Code adapter. Reads `~/.claude` and turns its JSONL session files int
 | `testdata/v1_0/` | Real-shape session fixtures used by the parser and provider tests. |
 | `testdata/synthetic_future.jsonl` | The canary fixture. Contains an unknown record type and an unknown content kind. The test that consumes it asserts both survive parsing as `UnknownBlock` values. |
 | `testdata/README.txt` | Human-readable explanation of every fixture and what it tests. |
+
+### `adapters/copilot/`
+
+The VS Code Copilot Chat adapter. Reads `workspaceStorage/<hash>/chatSessions/` (per-workspace chats) and `globalStorage/emptyWindowChatSessions/` (chats from folder-less VS Code windows). One folder, very different storage shape from Claude.
+
+The big difference: each Copilot session file is an event log, not a stream of independent records. The first line is a full snapshot, and every line after that is a small patch that mutates the snapshot. Reading a session means replaying every line in order. The `eventlog.go` file does the replay.
+
+| File | Job |
+|---|---|
+| `doc.go` | Package-level documentation. Describes the VS Code storage layout and the event-log replay model. |
+| `workspace.go` | Workspace decoding. Reads `workspace.json` to map an opaque hash like `0769784b...` back to the friendly project name. Defines the synthetic "(no workspace)" project for empty-window chats. |
+| `eventlog.go` | The event-log replayer. Reads kind-0 snapshots and applies kind-1 (set field) and kind-2 (append to array) patches in order. Returns the reconstructed snapshot plus a list of any unknown event kinds it saw. |
+| `parse.go` | Turns the replayed snapshot into a `Conversation`. Each entry in the snapshot's `requests` array becomes one user message and one assistant message. Recognizes markdown, thinking blocks, tool invocations, and a handful of UI-only response parts that get dropped. |
+| `detect.go` | Storage version detection. Walks workspaces and falls back to empty-window chats. Same fingerprinting algorithm as Claude. |
+| `provider.go` | The `Provider` implementation. Knows how to list projects (one per workspace plus the synthetic empty-window bucket), list sessions, and read one session by id across both workspace and empty-window storage. |
+| `cleanup_stub.go` | Stand-in for the cleanup methods. Returns `ErrNotImplemented` until the trash subsystem lands. |
+| `*_test.go` | Behaviour tests for each piece, with the resilience canary in `eventlog_test.go` and `parse_test.go`. |
+| `testdata/v3/` | Real-shape session fixtures for VS Code Copilot Chat schema version 3. |
+| `testdata/synthetic_future.jsonl` | The Copilot canary. Contains an unknown event kind in the middle of the stream and an unknown response part inside a request. Both must survive parsing. |
 
 ### `steps/`
 
@@ -207,11 +226,11 @@ Each adapter ships with a synthetic-future fixture that contains a fabricated un
 
 ## What's not built yet
 
-Today, chronicle is the read-only Claude tool. The forward-looking pieces are stubbed in the architecture but not yet implemented.
+Today, chronicle is the read-only Claude and Copilot tool. The forward-looking pieces are stubbed in the architecture but not yet implemented.
 
-- **Cleanup and trash.** `PlanDelete` and `PlanOrphanScan` return `ErrNotImplemented`. The cascade-delete map (which sibling folders follow a session into the trash) is documented in the research notes but not yet executed in code.
-- **Copilot adapter.** `adapters/copilot/` does not exist yet. The config schema (`internal/config/config.go`) already has the `CopilotConfig` block waiting, and the registry in `adapters/all.go` has a comment showing where the new factory line goes.
-- **Cursor and Antigravity adapters.** Not even stubbed. They become new sibling folders under `adapters/` whenever there is concrete demand.
+- **Cleanup and trash.** `PlanDelete` and `PlanOrphanScan` on both adapters return `ErrNotImplemented`. The cascade-delete map (which sibling folders follow a session into the trash) is documented in the research notes but not yet executed in code.
+- **Cursor adapter.** Cursor is a VS Code fork with its own chat storage shape (mostly inside `state.vscdb`). It is not stubbed yet. Adding it would be a new sibling folder under `adapters/` plus one line in the registry.
+- **Antigravity and other future tools.** Same shape as Cursor: new folder, one registry line.
 - **Terminal UI and web frontend.** The composition layer already exposes everything they would need. The `internal/config` package has the `TUIConfig` and `WebConfig` blocks ready. The actual code is future work.
 
 ## How to add a new provider (the recipe)
