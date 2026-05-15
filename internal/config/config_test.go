@@ -61,9 +61,9 @@ root    = "/some/where"
 }
 
 // TestLoad_malformedTOMLReturnsError proves we fail loudly on a typo
-// in the user's config file rather than silently falling back to
-// defaults. Falling back silently would hide bugs in the user's own
-// configuration and produce surprising behaviour at runtime.
+// in the user's config file. Falling back silently to defaults
+// would hide bugs in the user's own configuration and produce
+// surprising behaviour at runtime.
 func TestLoad_malformedTOMLReturnsError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "broken.toml")
 	if err := os.WriteFile(path, []byte("this is not = valid = toml"), 0o644); err != nil {

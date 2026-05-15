@@ -151,7 +151,7 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 //
 // The bits in backticks at the end of each field are called struct
 // tags. They tell the JSON decoder which key to read from. Without
-// them, Go would look for a JSON key called "Type" rather than
+// them, Go would look for a JSON key called "Type" instead of
 // "type", and the decode would silently set the field to the empty
 // value.
 //

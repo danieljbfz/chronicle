@@ -87,8 +87,8 @@ type ClaudeConfig struct {
 }
 
 // CopilotConfig holds the settings for the Copilot adapter. Roots is a
-// list rather than a single path because VS Code, VS Code Insiders,
-// and Cursor each live at their own location and a single chronicle
+// list, not a single path, because VS Code, VS Code Insiders, and
+// Cursor each live in their own location, and a single chronicle
 // install often wants to read all three. RefuseWhenVSCodeRunning is
 // the safety switch that prevents destructive operations against the
 // state.vscdb file VS Code is actively writing.

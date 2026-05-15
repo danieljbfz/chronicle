@@ -34,10 +34,11 @@ func Markdown(c contracts.Conversation) string {
 }
 
 // writeHeader emits a top-level Markdown heading and a one-line
-// metadata blockquote underneath. We accept a pointer to the builder
-// because we want every helper in this file to write into the same
-// growing buffer rather than producing strings to glue together
-// afterwards.
+// metadata blockquote underneath. We accept a pointer to the
+// builder so every helper in this file writes into the same
+// growing buffer. Returning strings from each helper and gluing
+// them together afterwards would do the same thing with more
+// allocations and more code.
 func writeHeader(builder *strings.Builder, c contracts.Conversation) {
 	title := c.Title
 	if title == "" {

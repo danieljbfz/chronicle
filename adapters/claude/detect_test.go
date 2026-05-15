@@ -8,8 +8,8 @@ import (
 
 // loadFixture reads one fixture file from the testdata directory and
 // returns its bytes. We mark it as a test helper so when t.Fatalf
-// fires inside the helper, the failure line in the test output points
-// at the calling test rather than at this function. Without
+// fires inside the helper, the failure line in the test output
+// points at the calling test, not at this function. Without
 // t.Helper(), every fixture-loading failure would blame the helper
 // instead of the test that asked for the fixture.
 func loadFixture(t *testing.T, name string) []byte {
@@ -40,16 +40,14 @@ func TestDetect_emptyTreeReturnsUnknown(t *testing.T) {
 	}
 }
 
-// TestDetect_realFixtureProducesFingerprint runs detection against a
-// fake ~/.claude built in memory from one of our fixture files. The
-// result should carry a non-empty fingerprint, even though the
-// version stays "unknown" until the final task of this plan adds the
-// captured fingerprint to knownFingerprints.
-//
-// We deliberately leave knownFingerprints empty in early commits so
-// the very first run on a contributor's machine produces the
-// fingerprint as evidence rather than as a guess. The doctor command
-// later prints the observed fingerprint, and we copy it into the map.
+// TestDetect_realFixtureProducesFingerprint runs detection against
+// a fake ~/.claude built in memory from one of our fixture files.
+// The result should carry a non-empty fingerprint. The version
+// will probably stay "unknown" because the small fixture has a
+// different shape from the real Claude installs we have already
+// fingerprinted into knownFingerprints. That is fine here. The
+// test only checks that detection produced a fingerprint, not
+// which one.
 func TestDetect_realFixtureProducesFingerprint(t *testing.T) {
 	fsys := fstest.MapFS{
 		"projects/-Users-test-proj/small.jsonl": &fstest.MapFile{

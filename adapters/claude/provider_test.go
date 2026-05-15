@@ -10,9 +10,9 @@ import (
 )
 
 // mustReadFixture is a small helper that loads one fixture file and
-// panics through the test framework if the read fails. We use it for
-// the test-time setup paths where a missing fixture is a setup bug
-// rather than a behaviour we want to assert against.
+// panics through the test framework if the read fails. We use it
+// for the test-time setup paths where a missing fixture is a setup
+// bug, not a behaviour we want to assert against.
 func mustReadFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile("testdata/v1_0/" + name)

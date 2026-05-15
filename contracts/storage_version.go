@@ -3,11 +3,11 @@ package contracts
 // StorageVersion is the result an adapter's Detect method returns. Every
 // adapter must return a non-nil value for every call, including for
 // storage shapes that no version of chronicle has ever recognized
-// before. An unrecognized shape is a normal state, not an error: the
+// before. An unrecognized shape is a normal state, not an error. The
 // resilience contract says we render unfamiliar storage in read-only
-// mode rather than refusing to load it. The Version field carries
-// either the empty string or the literal "unknown" in that case, and
-// the IsKnown helper below returns false.
+// mode and keep going. The Version field carries either the empty
+// string or the literal "unknown" in that case, and the IsKnown
+// helper below returns false.
 type StorageVersion struct {
 	Adapter      string
 	Version      string
@@ -17,7 +17,7 @@ type StorageVersion struct {
 
 // Capabilities describes what an adapter understands about the
 // storage it just looked at. The user interface checks these flags
-// to decide which features to show, rather than checking the
+// to decide which features to show. It does not look at the
 // version string.
 //
 // Why? Because new versions of an upstream tool sometimes add a

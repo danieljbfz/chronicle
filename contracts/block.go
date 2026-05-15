@@ -37,11 +37,11 @@ type ThinkingBlock struct {
 }
 
 // ToolUseBlock represents the assistant invoking a tool such as Bash or
-// Read. The Input field is the raw JSON the upstream tool stored, and
-// we keep it as a json.RawMessage rather than a typed struct because
-// every tool has its own argument shape. Trying to model all of them
-// would be a project of its own, and the renderer is fine with showing
-// the raw JSON inside a fenced block for inspection.
+// Read. The Input field is the raw JSON the upstream tool stored. We
+// keep it as a json.RawMessage and not a typed struct, because every
+// tool has its own argument shape. Trying to model all of them would
+// be a project of its own, and the renderer is fine with showing the
+// raw JSON inside a fenced block for inspection.
 type ToolUseBlock struct {
 	Tool   string
 	Input  json.RawMessage

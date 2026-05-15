@@ -71,9 +71,9 @@ func TestMarkdown_preservesUnknownBlock(t *testing.T) {
 }
 
 // TestMarkdown_renderToolBlocks proves the tool-call and tool-result
-// renderings end up as recognisable, navigable Markdown rather than
-// as raw JSON dumps. The strings the test looks for are the same
-// labels a human reader would skim for in the document.
+// renderings end up as recognisable, navigable Markdown. The
+// strings the test looks for are the same labels a human reader
+// would skim for in the document.
 func TestMarkdown_renderToolBlocks(t *testing.T) {
 	c := contracts.Conversation{
 		Messages: []contracts.Message{{

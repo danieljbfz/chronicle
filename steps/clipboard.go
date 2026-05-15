@@ -35,11 +35,12 @@ func OSC52Sequence(text string) string {
 
 // CopyOSC52 writes the OSC 52 escape sequence for text into w. The
 // command-line implementation passes os.Stdout, because terminals
-// interpret the sequence as it streams and there is nothing else for
-// us to call. We accept io.Writer rather than *os.File so the test
-// suite can pass a bytes.Buffer and inspect what was written, and so
-// a future caller (a logging wrapper, a shell-out for verification)
-// can plug in something else without changing this code.
+// interpret the sequence as it streams and there is nothing else
+// for us to call. The parameter type is io.Writer, not *os.File,
+// so the test suite can pass a bytes.Buffer and inspect what was
+// written. A future caller (a logging wrapper, a shell-out for
+// verification) can plug in something else without changing this
+// code.
 //
 // We return the writer's error verbatim. If the user pipes
 // chronicle's output into something that does not understand OSC 52,

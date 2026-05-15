@@ -214,12 +214,12 @@ func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Co
 }
 
 // locateSessionFile walks the projects tree and returns the path
-// of the .jsonl file whose name matches the session identifier. We
-// scan the tree linearly rather than building an index. Session
+// of the .jsonl file whose name matches the session identifier.
+// We scan the tree linearly and do not build an index. Session
 // identifiers are UUIDs, and a Claude install almost never has
 // more than a few hundred of them, so the walk is fast enough.
-// Building an index would be more code to maintain for no real
-// gain at this scale.
+// An index would be more code to maintain for no real gain at
+// this scale.
 func locateSessionFile(root fs.FS, id contracts.SessionID) (string, error) {
 	projects, err := fs.ReadDir(root, projectsDir)
 	if err != nil {

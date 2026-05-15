@@ -44,9 +44,9 @@ func newExportCmd() *cobra.Command {
 	return cmd
 }
 
-// exportOpts is the small bag of options runExport accepts. We use
-// a struct rather than separate arguments so test code stays
-// readable when new flags are added later.
+// exportOpts is the small bag of options runExport accepts. We
+// pass them as one struct, not as separate function arguments, so
+// the test code stays readable when new flags are added later.
 type exportOpts struct {
 	noTools, noThinking, noMeta bool
 	outPath                     string

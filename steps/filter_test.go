@@ -6,11 +6,11 @@ import (
 	"github.com/danieljbfz/chronicle/contracts"
 )
 
-// sampleConversation is the fixture every test in this file uses. It
-// is built in code rather than loaded from disk because the filter is
-// a pure function and we want the test to stay readable at a glance:
-// the input is right above the assertion, no fixture file in another
-// directory to chase.
+// sampleConversation is the fixture every test in this file uses.
+// We build it in code instead of loading it from disk because the
+// filter is a pure function, and we want the test to stay
+// readable at a glance. The input sits right above the assertion,
+// with no fixture file in another directory to chase.
 func sampleConversation() contracts.Conversation {
 	return contracts.Conversation{
 		Messages: []contracts.Message{

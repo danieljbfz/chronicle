@@ -53,8 +53,8 @@ func TestDoctorJSON_isValidJSON(t *testing.T) {
 }
 
 // TestDoctorText_emptyHealthsExplains makes sure the no-providers
-// case prints an explanation rather than a blank screen. A blank
-// screen would make the user think chronicle had crashed.
+// case prints an explanation. A blank screen would make the user
+// think chronicle had crashed.
 func TestDoctorText_emptyHealthsExplains(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeDoctorText(&buf, nil); err != nil {
