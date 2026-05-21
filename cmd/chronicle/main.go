@@ -15,6 +15,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/danieljbfz/chronicle/cmd/chronicle/tui"
+	"github.com/danieljbfz/chronicle/composition"
 )
 
 // version is the chronicle version string. We bump it by hand for
@@ -37,6 +40,12 @@ func main() {
 // newRootCmd builds the top-level command. Subcommands are added
 // from their own files in this same package, so each subcommand can
 // keep its flags and its run function next to each other.
+//
+// The root command's RunE launches the interactive TUI. Cobra only
+// calls RunE when no subcommand matches the user's arguments, so
+// `chronicle` with no arguments enters the TUI while `chronicle
+// list`, `chronicle export`, and the other subcommands keep their
+// existing behaviour.
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "chronicle",
@@ -45,6 +54,14 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: false,
 		Version:       version,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := composition.New()
+			if err != nil {
+				return fail("init: %v", err)
+			}
+			return tui.Run(app, tui.Options{Version: version})
+		},
 	}
 
 	cmd.AddCommand(newListCmd())
