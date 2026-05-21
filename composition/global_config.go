@@ -1,7 +1,6 @@
 package composition
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/danieljbfz/chronicle/contracts"
@@ -119,10 +118,3 @@ type ConfigCleanupResult struct {
 	RemovedKeys []string
 	BackupPath  string
 }
-
-// ErrNoGlobalConfigCapability is the explicit error
-// CleanConfigProjects returns when the caller asked to
-// clean entries from a provider that does not implement
-// the GlobalConfig capability. The CLI surfaces this with
-// a clear "this provider has no global config" message.
-var ErrNoGlobalConfigCapability = errors.New("provider does not support global config edits")
