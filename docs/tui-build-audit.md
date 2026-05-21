@@ -23,42 +23,38 @@ screens. The CLI keeps its current shape for scripting.
 
 ## Current phase
 
-Phase 3 (stats) is the next screen to build. Phase 2 is done
-and the codebase-wide review that followed it is done. The full
-test suite is green across all sixteen packages.
+Phase 4 (doctor) is the next screen to build. Phases 2 and 3
+are done, the codebase-wide review that followed phase 2 is
+done, and the navigation refactor that phase 3 needed (the
+`Screen` interface plus the responsive tab-strip router) is in
+place. The full test suite is green across all sixteen
+packages.
 
-Phase 3 reads `composition.App.Stats` and renders the totals,
-the per-provider rows, the top-N projects, and the by-model
-breakdown. `lipgloss/v2/table` is the right tool, and no data
-fetch is needed beyond the one `Stats` call. The shape to
-follow is the session-list and transcript screens: a `Stats`
-interface that is the minimal subset of `composition.App` the
-screen reads, a `Model` with the standard loading/ready/error
-states, a breadcrumb header, and an always-visible help line.
+Phase 4 reads `composition.App.Doctor` and renders one card per
+detected provider with the root, the version, the fingerprint,
+the reachability flag, the session count, and any warnings or
+errors. The shape to follow is the stats screen: a `Source`
+interface that is the minimal `composition.App` subset, a
+`Model` with the standard loading/ready/error states, content
+that fits in the viewport or scrolls, and tables or boxed
+cards through `lipgloss/v2`.
 
-What is left before phase 3 starts:
+The screen needs to register one more entry in the section
+order, meta, and registry inside `app.go::newAppModel` — the
+tab strip grows automatically from there.
 
-1. **Research.** Read `composition/stats.go` for the result
-   shape, read `cmd/chronicle/stats.go` for how the CLI already
-   renders it, and read the `lipgloss/v2/table` docs for the
-   column and border API.
-2. **Plan.** Surface the screen-level plan to the user — the
-   package, the files, the interface, the table layout, the
-   open questions — before writing code.
+What is left before phase 4 starts:
+
+1. **Research.** Read `composition/doctor.go` for the result
+   shape, read `cmd/chronicle/doctor.go` for how the CLI
+   already renders it, and decide whether one card per
+   provider or one table row per provider reads better in the
+   terminal.
+2. **Plan.** Surface the layout plan to the user — card vs
+   table, warning placement, refresh semantics — before
+   writing code.
 3. **Execute, review, commit** on the same cadence the earlier
    phases used.
-
-The phase-2 user observations are both resolved. The "filter
-only applies after 3 letters" report turned out to be a data
-issue, not a filter issue: many sessions had empty titles
-because every adapter set `SessionSummary.Title` from
-`FirstUserPrompt`, which is empty for sessions that began with
-a slash command, a tool result, or an attached file. The fix
-was `Conversation.ListingTitle` in contracts (see the Decisions
-entry below), which gives every row a recognizable name and
-lets the bubbles fuzzy filter behave naturally. The glamour
-style is now driven by the `ui.tui.glamour_style` config key
-rather than a hard-coded `dark` (also a Decisions entry).
 
 ## Decisions
 
@@ -558,6 +554,63 @@ calendar day.
   gate and the Claude `ModelMetadata` flag.
 - Seventeen commits total this session, each with `make check`
   green. Phase pointer moved to phase 3 (stats).
+
+### 2026-05-21 — Session 2 continued (phase 3: stats)
+
+- Researched what to ship for top-level navigation. A web
+  search confirmed the rule of thumb (tabs suit up to five or
+  six sections, sidebars are for larger surfaces) and surfaced
+  the responsive caveat — Bubble Tea has no layout engine, so
+  a collapsing sidebar would be real complexity. The user
+  asked for the more modern, scalable, accessible choice; the
+  decision landed on a one-line horizontal tab strip with a
+  documented scalability trigger toward a command palette
+  past about six sections. Recorded under "Decisions →
+  2026-05-21 — Top-level navigation: horizontal tab strip".
+- Built the navigation foundation. A new Screen interface in
+  `cmd/chronicle/tui/screen.go` (Init/Update/View) lives in
+  the tui package alongside thin adapters
+  (sessionsScreen, statsScreen) that wrap each concrete
+  value-type Model into the interface, so the screen
+  packages stay free of any dependency on the routing layer.
+  The app model gained an order/meta/screens registry and
+  routes number keys (1, 2, …) directly to the section in
+  that position plus Tab and Shift-Tab to cycle.
+- Responsive layout was a first-class requirement. The tab
+  strip has two render tiers — a full-label tier with every
+  section label, and a compact tier that shows the brand,
+  the active label, and the section numbers — so the strip
+  always fits one line regardless of terminal width. The
+  chrome is exactly two rows (strip plus divider), forwarded
+  to every screen as a height reduction so the content area's
+  sizing math stays stable.
+- Built the stats screen at
+  `cmd/chronicle/tui/screens/stats/`. The Source interface
+  is the minimal `composition.App` subset (just the Stats
+  method). The body renders a totals block followed by the
+  per-provider, top-projects, and by-model tables through
+  `lipgloss/v2/table`, all inside a viewport that scrolls
+  with the same j/k/u/d/g/G keys the transcript reader uses.
+  Tables size themselves to the terminal width through the
+  table's Width setter so a narrow window truncates cells
+  rather than wrapping a row.
+- Six unit tests pin the stats screen's contract: loading,
+  ready, error, the load command's loadedMsg shape, every
+  section header in the rendered output (with "(unknown)"
+  for the empty-model bucket), and the same summary
+  producing different output at two widths so a width-budget
+  regression is caught. The session list's own breadcrumb
+  was removed because the app's tab strip is the one source
+  of top chrome; the three app-level tests were updated for
+  the new section model.
+- Live-tested via `expect`: launched the binary, jumped to
+  stats with `2`, returned to sessions with `1`, cycled with
+  Tab, quit with `q`. Exit status 0, every step accepted.
+  The visual review of the rendered tab strip and tables
+  depends on the user running `./chronicle` against their
+  real data.
+- Three commits this phase, each with `make check` green.
+  Phase pointer moved to phase 4 (doctor).
 
 ## Bubble Tea v2 API notes
 
