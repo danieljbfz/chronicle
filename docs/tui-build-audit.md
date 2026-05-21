@@ -232,6 +232,85 @@ boundary, trust internal callers" posture. The boundary helpers
 list-formatting helpers the warnings use) all live in the `tui`
 package so `main.go` reaches into exactly one tui-tree package.
 
+### 2026-05-21 — Top-level navigation: horizontal tab strip
+
+Phase 3 (stats) is the first screen not reached by drilling
+into a session, so the TUI needed a way to move between
+top-level sections. After surfacing three candidates (a top
+tab strip, a command palette, and Tab-cycling) and a web
+search for what experts recommend, the decision is a
+**horizontal top tab strip**: a single header line that lists
+the implemented sections, the active one painted in the theme
+accent, with number keys to jump directly and Tab/Shift-Tab to
+cycle. The transcript reader stays a drill-down from the
+session list (Enter to open, Esc to return), not a peer tab.
+
+The reasoning, informed by the research:
+
+- The tabs UX guidance is that tabs suit a small fixed set of
+  equally-important sections (roughly five or six). Chronicle
+  has exactly five top-level sections, which is squarely in
+  that range. A sidebar's headline advantage is scaling to
+  many sections, which chronicle does not need, so a
+  collapsing sidebar would be solving a problem we do not
+  have.
+- In a terminal, height is abundant and width is scarce.
+  Chronicle's content is width-hungry tables (stats, doctor,
+  trash). A top strip costs one row of height. A left sidebar
+  costs roughly sixteen columns of width permanently, which
+  the tables want. Spend the abundant resource, not the
+  scarce one.
+- A responsive collapsing sidebar is not a free lunch in
+  Bubble Tea. The framework gives no layout engine — every
+  widget is sized by hand from WindowSizeMsg, and lipgloss has
+  known rough edges with width-filling and word-wrap on
+  resize. Hand-rolling a collapse threshold and focus hand-off
+  is real complexity and bug surface for a v1.
+- A command palette is a many-targets tool (k9s uses it
+  because Kubernetes has dozens of resource types). Five named
+  screens do not justify hiding the whole surface behind a
+  prompt.
+
+**Scalability trigger:** if chronicle's top-level section count
+ever grows past about six, revisit toward a command palette
+(the many-targets winner), not a sidebar (which would still
+cost the width the tables need). A `Ctrl-K`-style palette can
+also be layered on top of the tab strip later as a power-user
+accelerator without redesigning the navigation.
+
+**Responsive design (a first-class requirement, at the user's
+explicit request):**
+
+- The tab strip is always exactly one line and never wraps,
+  the same single-line invariant the session-list rows hold.
+  A wrapping header would break the fixed header height the
+  content area's sizing math depends on.
+- Two render tiers. When the full labels fit the terminal
+  width, the strip shows them ("sessions · stats", active
+  accented, with number hints). When they do not, it degrades
+  to a compact form — the section numbers with the active one
+  accented plus the active section's name — so the strip
+  always fits one line and always shows where the user is.
+- The content area reserves fixed rows for the header (the
+  strip plus a divider) and the footer (the help line), and
+  gives the rest to the active screen. The height is clamped
+  to at least one row so a tiny terminal still renders.
+- Tables size to the available width through
+  `lipgloss/v2/table`'s Width, and columns truncate rather
+  than wrap so a narrow terminal still produces a single-line
+  row per record.
+
+**Internal structure:** `app.go` becomes a router. A `Screen`
+interface (`Init`/`Update`/`View`) lets the app hold the
+implemented sections in a section-keyed registry and route the
+active one, rather than growing one field and one type-switch
+branch per screen. This is the `Screen` interface session 1's
+audit deferred until "more than two screens make the
+type-switch ungainly" — phase 3 is that moment. Only built
+sections register a tab, so the strip grows as phases 4 to 6
+land rather than showing placeholder tabs for screens that do
+not exist yet.
+
 ### 2026-05-21 — Codebase-wide review after phase 2
 
 After phase 2 the user asked for a full review of the whole
@@ -270,50 +349,8 @@ The handoff's "Open questions" table is resolved under
 them, and each one moves to "Decisions" with a dated entry once
 it is answered.
 
-### Top-level navigation between screens (open, blocks phase 3)
-
-Phase 3 (stats) is the first screen that is not reached by
-drilling into a session, and phases 4 to 6 (doctor, trash,
-memory) are the same. The app model in `app.go` today only
-knows two screens — the session list and the transcript
-drill-down it reaches through `OpenRequestMsg` on Enter and
-leaves through `BackMsg` on Esc. There is no way yet to move
-between top-level sections, so the navigation model has to be
-decided before stats can be reachable. The decision binds
-every remaining phase.
-
-The candidates surfaced to the user:
-
-1. **Number-key tabs plus a visible section strip.** A
-   persistent strip ("[1] sessions  [2] stats  [3] doctor
-   [4] trash  [5] memory") with the active section
-   highlighted, number keys to jump directly, Tab and
-   Shift-Tab to cycle. The transcript stays a drill-down from
-   the session list. Familiar from gh-dash and browser tabs,
-   keyboard-first, discoverable. This is the recommendation.
-2. **Command palette.** Press `:` to open an input, type a
-   section name, Enter to jump. Powerful but the section set
-   is hidden until the palette opens, so it is less
-   discoverable for a first-time user.
-3. **Tab and Shift-Tab cycling only.** Simplest, least chrome,
-   but no direct jump and no always-visible map of the
-   sections.
-
-Two internal choices ride along with whichever model wins, and
-the recommendation is to take both now that a third screen
-(plus three more) exists:
-
-- Introduce a `Screen` interface (`Init`/`Update`/`View`) so
-  `app.go` becomes a router over a section-keyed set of
-  screens rather than one direct field and one type-switch
-  branch per screen. Session 1's audit deferred this until
-  "more than two screens make the type-switch ungainly", and
-  phase 3 is that moment.
-- Keep the transcript reader a drill-down from the session
-  list rather than a top-level section.
-
-The user is choosing the navigation model now. Once chosen, it
-moves to "Decisions" with a dated entry and phase 3 proceeds.
+*(none currently open — the top-level navigation question is
+resolved under "Decisions" below.)*
 
 ## Session log
 
