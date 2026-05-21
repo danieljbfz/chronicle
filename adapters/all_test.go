@@ -128,3 +128,45 @@ func TestCopilotChatFactory_findsExistingRoot(t *testing.T) {
 		t.Errorf("Root = %q, want %q", entries[0].Root, real)
 	}
 }
+
+// TestCopilotAgentFactory_disabledReturnsNothing covers the
+// disable switch for the third provider, matching the Claude
+// and Copilot Chat cases. A user who never runs the Copilot
+// agent runtime should see no agent entry.
+func TestCopilotAgentFactory_disabledReturnsNothing(t *testing.T) {
+	settings := withProvider(config.ProviderCopilotAgent, config.ProviderConfig{Enabled: false})
+	entries := copilotAgentFactory(settings, paths.Locations{CopilotAgentRoot: "/tmp/anywhere"})
+	if entries != nil {
+		t.Errorf("disabled Copilot agent factory returned %d entries, want nil", len(entries))
+	}
+}
+
+// TestCopilotAgentFactory_skipsMissingRoot confirms the
+// factory returns nothing when the agent's session-state
+// directory is absent. The agent runtime is newer and in
+// public preview, so most installs will not have ~/.copilot
+// on disk, and the factory must stay quiet rather than
+// surface a missing-directory entry.
+func TestCopilotAgentFactory_skipsMissingRoot(t *testing.T) {
+	settings := config.Defaults()
+	entries := copilotAgentFactory(settings, paths.Locations{CopilotAgentRoot: "/does/not/exist/at/all"})
+	if len(entries) != 0 {
+		t.Errorf("entries = %d, want 0 when the root is absent", len(entries))
+	}
+}
+
+// TestCopilotAgentFactory_findsExistingRoot confirms the
+// inverse: when the root exists on disk, the factory returns
+// exactly one Entry pointed at it. We use the test's own temp
+// directory as a real path.
+func TestCopilotAgentFactory_findsExistingRoot(t *testing.T) {
+	real := t.TempDir()
+	settings := config.Defaults()
+	entries := copilotAgentFactory(settings, paths.Locations{CopilotAgentRoot: real})
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
+	}
+	if entries[0].Root != real {
+		t.Errorf("Root = %q, want %q", entries[0].Root, real)
+	}
+}

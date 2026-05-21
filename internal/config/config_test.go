@@ -15,8 +15,13 @@ func TestLoad_missingFileReturnsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(missing): %v", err)
 	}
-	if cfg.Trash.RetentionDays != 30 {
-		t.Errorf("RetentionDays = %d, want 30", cfg.Trash.RetentionDays)
+	// The expected retention comes from Defaults rather than a
+	// repeated literal, so a deliberate change to the default
+	// updates this test in one place instead of leaving it
+	// asserting a stale number.
+	wantRetention := Defaults().Trash.RetentionDays
+	if cfg.Trash.RetentionDays != wantRetention {
+		t.Errorf("RetentionDays = %d, want %d", cfg.Trash.RetentionDays, wantRetention)
 	}
 	if !cfg.Providers[ProviderClaude].Enabled {
 		t.Error("Claude should be enabled by default")
