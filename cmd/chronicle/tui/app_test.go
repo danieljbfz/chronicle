@@ -55,22 +55,32 @@ func TestAppModel_Update_QuitOnQ(t *testing.T) {
 	}
 }
 
-// TestAppModel_Update_OpenRequestPublishesStatus confirms the
-// app model handles an OpenRequestMsg by publishing a transient
-// status into the sessions screen's list status bar rather than
-// pushing the layout around. Phase 2 will replace this branch
-// with a real screen switch.
-func TestAppModel_Update_OpenRequestPublishesStatus(t *testing.T) {
+// TestAppModel_Update_OpenRequestSwitchesToTranscript confirms
+// the app model routes an OpenRequestMsg to the transcript
+// reader. The message arrives when the user presses Enter on a
+// session row, and the expected behaviour is a screen switch
+// (current flips to screenTranscript) plus a command that kicks
+// off the transcript reader's read-and-render pipeline. The
+// test does not execute the returned command, which would dial
+// into the nil app handle the test passes for brevity.
+func TestAppModel_Update_OpenRequestSwitchesToTranscript(t *testing.T) {
 	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0", DefaultGlamourStyle)
 
-	_, cmd := m.Update(sessions.OpenRequestMsg{
+	out, cmd := m.Update(sessions.OpenRequestMsg{
 		SessionID: contracts.SessionID("abc-123"),
 		ProjectID: contracts.ProjectID("proj-1"),
 		Provider:  "claude",
 	})
 
+	updated, ok := out.(appModel)
+	if !ok {
+		t.Fatalf("Update should return an appModel, got %T", out)
+	}
+	if updated.current != screenTranscript {
+		t.Errorf("after OpenRequestMsg the active screen should be screenTranscript, got %d", updated.current)
+	}
 	if cmd == nil {
-		t.Fatal("an OpenRequestMsg should return a non-nil command from PublishStatusMessage")
+		t.Fatal("OpenRequestMsg should return a non-nil command (the transcript reader's load)")
 	}
 }
 
