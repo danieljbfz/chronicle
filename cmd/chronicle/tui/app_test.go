@@ -7,42 +7,41 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/keys"
+	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/screens/sessions"
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/theme"
+	"github.com/danieljbfz/chronicle/contracts"
 )
 
-// TestAppModel_View_RendersWelcome pins the contract that the
-// welcome screen displays the chronicle version, the placeholder
-// body that explains what the TUI will eventually do, and the
-// help bar. It also confirms the screen requests alt-screen mode,
-// because anything less than full-window would feel cramped for a
-// browser-shaped tool.
-func TestAppModel_View_RendersWelcome(t *testing.T) {
+// TestAppModel_View_RendersHeader pins the contract that the
+// top-level model always renders a header line above the active
+// screen's content. In the default state, the header is the
+// chronicle title and version. Phase 1's screen below it is the
+// session list, so the body shows whichever state the sessions
+// screen is in. The view also requests alt-screen mode for the
+// program.
+func TestAppModel_View_RendersHeader(t *testing.T) {
 	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0")
 
 	view := m.View()
 
 	if !strings.Contains(view.Content, "chronicle 0.1.0") {
-		t.Errorf("the welcome screen should render the version string. Got:\n%s", view.Content)
-	}
-	if !strings.Contains(view.Content, "under construction") {
-		t.Errorf("the welcome screen should explain that the TUI is in progress. Got:\n%s", view.Content)
-	}
-	if !strings.Contains(view.Content, "chronicle --help") {
-		t.Errorf("the welcome screen should point users at the working CLI. Got:\n%s", view.Content)
-	}
-	if !strings.Contains(view.Content, "quit") {
-		t.Errorf("the help bar should advertise the quit binding. Got:\n%s", view.Content)
+		t.Errorf("the header should render the version string. Got:\n%s", view.Content)
 	}
 	if !view.AltScreen {
-		t.Error("the welcome screen should request alt-screen mode")
+		t.Error("the program should request alt-screen mode")
+	}
+	if view.WindowTitle != "chronicle" {
+		t.Errorf("the terminal window title should be set; got %q", view.WindowTitle)
 	}
 }
 
 // TestAppModel_Update_QuitOnQ confirms that pressing the bound
 // quit key returns a command whose execution produces a QuitMsg.
 // The quit binding covers both `q` and `ctrl+c`, so the test
-// exercises the more user-visible `q` form. Phase 1's screens
-// will rely on the same binding being honoured globally.
+// exercises the more user-visible `q` form. The check that
+// follows the binding match (the session list must not be in
+// filter mode) is exercised through the no-filter default state
+// of the screen.
 func TestAppModel_Update_QuitOnQ(t *testing.T) {
 	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0")
 
@@ -59,9 +58,35 @@ func TestAppModel_Update_QuitOnQ(t *testing.T) {
 	}
 }
 
+// TestAppModel_Update_OpenRequestShowsStatus confirms that when
+// the session list emits an OpenRequestMsg, the app model
+// surfaces a transient status line that names the session whose
+// transcript was requested. Phase 2 will replace the status line
+// with a real screen switch, but until then the status line is
+// the user-visible evidence that the wiring works end to end.
+func TestAppModel_Update_OpenRequestShowsStatus(t *testing.T) {
+	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0")
+
+	out, _ := m.Update(sessions.OpenRequestMsg{
+		SessionID: contracts.SessionID("abc-123"),
+		ProjectID: contracts.ProjectID("proj-1"),
+		Provider:  "claude",
+	})
+
+	updated, ok := out.(appModel)
+	if !ok {
+		t.Fatalf("Update should return an appModel, got %T", out)
+	}
+	if !strings.Contains(updated.status, "abc-123") {
+		t.Errorf("the status should name the requested session id; got %q", updated.status)
+	}
+}
+
 // TestAppModel_Update_WindowSizeStored confirms the resize
-// message updates the model's dimensions. Later screens rely on
-// the dimensions being available before their first render.
+// message updates the model's dimensions and forwards the
+// reduced size to the embedded sessions screen. The reduction
+// reserves room for the header line the app model draws above
+// the screen content.
 func TestAppModel_Update_WindowSizeStored(t *testing.T) {
 	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0")
 

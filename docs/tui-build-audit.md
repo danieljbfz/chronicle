@@ -23,10 +23,49 @@ screens. The CLI keeps its current shape for scripting.
 
 ## Current phase
 
-Phase 0 (foundation) is complete and on a clean working tree
-ready for commit. Phase 1 (session list screen) is next.
+Phase 1 (session list screen) is complete on a clean working
+tree ready for commit. Phase 2 (transcript reader) is next.
 
 ## Decisions
+
+### 2026-05-21 — UI bar: intuitive and accessible by default
+
+Every screen is designed against an explicit accessibility and
+usability bar, set by the user during the session-1 build:
+
+- **Keyboard-first, mouse-optional.** Every action has a key
+  binding. Mouse wheel scrolling is enabled on lists and
+  viewports, but no action is reachable only by mouse.
+- **Vim AND arrow keys.** The default key bindings cover both
+  conventions so a user who lives in Vim and a user who does
+  not can each drive every screen without learning the other.
+- **No multi-key chords.** A single keypress maps to a single
+  action. Compound bindings (`g g`, `d d`) are not used.
+- **Colour PLUS text.** Provider badges, status indicators, and
+  error markers carry a text label as well as a colour, so a
+  user with limited colour vision can still distinguish them.
+- **Always-visible help bar.** The bottom of every screen shows
+  the short help for the currently active bindings. The `?`
+  key opens a full-help overlay with the same bindings grouped
+  by purpose.
+- **Full-sentence loading, empty, and error states.** A screen
+  that is loading says so, a screen with no data explains why
+  and what to do, a screen that errored quotes the underlying
+  error and points the user at the next step.
+- **High-contrast focused row.** The currently selected row in
+  every list uses a reverse-video paint (or a strong background
+  in the dark theme), not just bold or colour.
+- **Refresh on demand.** Every screen that reads data exposes
+  `r` to re-fetch, so a user who knows the data changed under
+  them can update without quitting.
+- **Predictable exit.** `q` quits the program from anywhere.
+  `esc` cancels the current focus state (closes an overlay,
+  clears a filter, leaves a transcript and returns to the
+  session list).
+
+These principles bind every screen, not just the first one.
+Each phase's review pass checks the new screen against this
+list.
 
 ### 2026-05-21 — TUI library stack: Charm v2
 
@@ -192,6 +231,51 @@ calendar day.
     status 0. `tmux capture-pane` would be the next step for
     golden-file integration tests, but `tmux` is not installed
     on this machine. Phase 1 will need it or `teatest`.
+
+### 2026-05-21 — Session 1 continued (phase 1: session list)
+
+- Built phase 1: the session list screen.
+  - Created `cmd/chronicle/tui/screens/sessions/`, the first
+    real screen package. The Lister interface inside it is the
+    minimal subset of composition.App the screen reads
+    (ListSessionsAll only), so tests pass a fakeLister and
+    production passes *composition.App.
+  - The screen wraps each `composition.SessionListing` in a
+    sessionItem and feeds it through a custom delegate that
+    renders two lines per row: a header with the provider
+    badge, the title (truncated to fit), and the relative time
+    since last active, plus a subtitle with the project path
+    in a muted style. The selected row uses the theme's
+    reverse-paint Highlight so focus stays readable on
+    terminals without rich colour.
+  - Loading, empty, and error states are full sentences. The
+    empty state points at `chronicle doctor`. The error state
+    quotes the underlying error and also points at doctor.
+  - The screen emits `sessions.OpenRequestMsg` on Enter. The
+    app model logs it as a transient status line above the
+    screen content. Phase 2 will replace the log with a real
+    switch to the transcript reader.
+  - `IsFiltering()` on the sessions Model lets the app model
+    skip the global quit binding while the user is typing in
+    the filter input. A user filtering for the string "quit"
+    no longer triggers the program quit on the "q" keystroke.
+  - The app model now reserves two terminal rows for the
+    header it draws above the screen content. WindowSizeMsg is
+    forwarded to the screen with `Height: msg.Height - 2`.
+  - Six unit tests pin the contract: starts in loading state,
+    Init returns a load command, loadedMsg populates and
+    sorts, errMsg shows the error, empty result names the next
+    step, Enter on a populated row emits OpenRequestMsg, and
+    sessionItem.FilterValue covers title, project, and
+    provider for the filter search.
+  - `make check` is green.
+  - Live-tested through `expect`: binary launches against the
+    user's real Claude data, accepts j/k navigation, opens the
+    filter and accepts typed input, escapes the filter, quits
+    cleanly with status 0. The rendered alt-screen output is
+    not capturable from outside the terminal without `tmux`
+    capture-pane, so the visual review depends on the user
+    actually running `./chronicle` and looking.
 
 ## Bubble Tea v2 API notes
 
