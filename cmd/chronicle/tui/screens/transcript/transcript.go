@@ -114,7 +114,18 @@ type Model struct {
 // screen until the resulting loadedMsg or errMsg arrives.
 func New(src Reader, k keys.KeyMap, t theme.Theme, glamourStyle string, sessionID contracts.SessionID, projectID contracts.ProjectID, provider string) Model {
 	vp := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
-	vp.SoftWrap = true
+	// SoftWrap is intentionally off. The glamour renderer
+	// already word-wraps the Markdown to wrapWidth during
+	// renderMarkdown, so every line the viewport receives is
+	// already at most wrapWidth wide. Leaving SoftWrap on
+	// would have the viewport iterate every line on every
+	// frame, calling ansi.StringWidth on each — measured at
+	// roughly eleven milliseconds per render for a one-
+	// megabyte transcript, which approaches the 60-fps frame
+	// budget and produces the queued-input feeling the user
+	// reported. With SoftWrap off the same render falls into
+	// the order of microseconds.
+	vp.SoftWrap = false
 	vp.MouseWheelEnabled = true
 
 	return Model{

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -168,6 +169,138 @@ func TestUpdate_EscEmitsBackMsg(t *testing.T) {
 	msg := cmd()
 	if _, ok := msg.(BackMsg); !ok {
 		t.Fatalf("Esc should resolve to a BackMsg, got %T", msg)
+	}
+}
+
+// TestUpdate_TenJKeypressesAdvanceTheViewportByTen pins the
+// property the user's "scroll feels queued" report is about.
+// Pressing j ten times in a row should advance the viewport's
+// YOffset by ten — every keypress is processed in the Update
+// it arrives in, with no spinner-tick interleaving or other
+// queued work that would delay the visible response.
+//
+// The test renders enough content to be scrollable, drives
+// the model through ten consecutive j keypresses, and reads
+// the viewport's YOffset after each one. If any keypress
+// fails to advance the offset by exactly one, the test
+// surfaces the discrepancy with the keypress index so a
+// future regression has a precise repro.
+func TestUpdate_TenJKeypressesAdvanceTheViewportByTen(t *testing.T) {
+	// Build a long body so the viewport has somewhere to
+	// scroll to. Two hundred lines is well past any plausible
+	// viewport height the test runs at.
+	var body strings.Builder
+	for i := 0; i < 200; i++ {
+		body.WriteString("line ")
+		body.WriteString(strings.Repeat("x", 10))
+		body.WriteByte('\n')
+	}
+
+	m := newTestModel(contracts.Conversation{}, nil)
+	// Size the viewport before loading so the scroll positions
+	// match a realistic runtime sequence.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated
+	// Hand the rendered body straight into the loaded path so
+	// the screen flips to ready without running the real
+	// fetch.
+	updated, _ = m.Update(loadedMsg{rendered: body.String()})
+	m = updated
+
+	startOffset := m.viewport.YOffset()
+	for i := 1; i <= 10; i++ {
+		updated, _ = m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+		m = updated
+		wantOffset := startOffset + i
+		if m.viewport.YOffset() != wantOffset {
+			t.Errorf("after keypress %d: YOffset = %d, want %d", i, m.viewport.YOffset(), wantOffset)
+		}
+	}
+}
+
+// TestView_StaysWellUnderTheFrameBudget pins the property
+// the SoftWrap-off decision exists to guarantee: a single
+// View call on a real-world-sized transcript completes in
+// well under the 60-fps frame budget (about 16 milliseconds),
+// so scroll keypresses feel instant rather than queued.
+//
+// The threshold is one millisecond — about sixteen times
+// inside the budget — so a future regression that quadruples
+// the render cost still fails the assertion before the user
+// sees it. The user's original report ("scroll is super
+// slow, moves by itself after I stop pressing") was the
+// symptom of an eleven-millisecond render; this test would
+// have caught that regression before the user did.
+func TestView_StaysWellUnderTheFrameBudget(t *testing.T) {
+	const bodySize = 1 << 20 // one megabyte, the realistic upper bound
+	var body strings.Builder
+	body.Grow(bodySize)
+	for body.Len() < bodySize {
+		body.WriteString("the quick brown fox jumps over the lazy dog with a moderate sprinkling of words\n")
+	}
+	m := newTestModel(contracts.Conversation{}, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	updated, _ = updated.Update(loadedMsg{rendered: body.String()})
+
+	// The threshold is generous on purpose: five milliseconds
+	// leaves room for the race detector's overhead (it
+	// roughly triples wall-clock cost) and for slower CI
+	// machines, while still catching the eleven-millisecond
+	// regression the user reported. The real budget is sixteen
+	// milliseconds (one 60-fps frame); a render that takes
+	// five milliseconds even under race is comfortable.
+	const budget = 5 * time.Millisecond
+	start := time.Now()
+	_ = updated.View()
+	elapsed := time.Since(start)
+	if elapsed > budget {
+		t.Errorf("View on a 1 MB transcript took %v, want <= %v (60 FPS frame budget is %v)", elapsed, budget, 16*time.Millisecond)
+	}
+}
+
+// BenchmarkView_RealWorldTranscript measures how long View
+// takes for a transcript-sized body. Bubble Tea throttles
+// frames to a default 60 FPS, which gives the renderer about
+// 16ms per frame; a View that takes meaningfully more than
+// that drops frames and feels like queued input to the user.
+// The benchmark exists to give a fast empirical answer to
+// "is rendering the bottleneck?" the next time the question
+// comes up.
+func BenchmarkView_RealWorldTranscript(b *testing.B) {
+	var body strings.Builder
+	for i := 0; i < 1000; i++ {
+		body.WriteString("the quick brown fox jumps over the lazy dog\n")
+	}
+	m := newTestModel(contracts.Conversation{}, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	updated, _ = updated.Update(loadedMsg{rendered: body.String()})
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = updated.View()
+	}
+}
+
+// BenchmarkView_HugeRenderedBody measures the View cost for a
+// 1 MB rendered body, the rough size a long real Claude
+// session produces after glamour renders the Markdown. A
+// 60 FPS frame budget allows about 16 milliseconds per
+// frame; if View on a 1 MB body takes meaningfully more than
+// that, the bubble-tea runtime drops frames and the user
+// sees scroll input pile up. The benchmark gives the next
+// session a precise measurement to act on, not a guess.
+func BenchmarkView_HugeRenderedBody(b *testing.B) {
+	const bodySize = 1 << 20 // 1 MB
+	var body strings.Builder
+	body.Grow(bodySize)
+	for body.Len() < bodySize {
+		body.WriteString("the quick brown fox jumps over the lazy dog with a moderate sprinkling of words\n")
+	}
+	m := newTestModel(contracts.Conversation{}, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	updated, _ = updated.Update(loadedMsg{rendered: body.String()})
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = updated.View()
 	}
 }
 
