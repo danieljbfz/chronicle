@@ -175,7 +175,7 @@ func collectFingerprintInputs(r io.Reader) ([]steps.FingerprintInput, bool, erro
 			V    json.RawMessage `json:"v"`
 		}
 		if err := decoder.Decode(&event); err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			// We hit a record that will not decode. Rather than

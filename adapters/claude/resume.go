@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 
@@ -87,7 +88,7 @@ func readSessionCwd(root fs.FS, sessionFile string) (string, error) {
 			Cwd string `json:"cwd"`
 		}
 		if err := dec.Decode(&record); err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return "", nil
 			}
 			// One bad JSON record should not bury the

@@ -2,6 +2,7 @@ package copilotchat
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 )
 
@@ -82,7 +83,7 @@ func replay(r io.Reader) (replayResult, error) {
 	for {
 		var event rawEvent
 		if err := decoder.Decode(&event); err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			// Garbage value in the middle of the stream. We cannot
