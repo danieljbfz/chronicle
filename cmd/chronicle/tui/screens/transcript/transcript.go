@@ -66,6 +66,14 @@ type Model struct {
 	keys  keys.KeyMap
 	theme theme.Theme
 
+	// glamourStyle names the Markdown stylesheet the renderer
+	// passes to glamour when it produces the rendered output.
+	// The value reaches this field from the user's chronicle
+	// config through tui.Run and the top-level app model. The
+	// transcript reader trusts the value — validation lives at
+	// the configuration boundary in cmd/chronicle/main.go.
+	glamourStyle string
+
 	sessionID contracts.SessionID
 	projectID contracts.ProjectID
 	provider  string
@@ -88,20 +96,21 @@ type Model struct {
 // asynchronous fetch through src.ReadSession and the subsequent
 // Markdown render. The "Loading transcript…" message stays on
 // screen until the resulting loadedMsg or errMsg arrives.
-func New(src Reader, k keys.KeyMap, t theme.Theme, sessionID contracts.SessionID, projectID contracts.ProjectID, provider string) Model {
+func New(src Reader, k keys.KeyMap, t theme.Theme, glamourStyle string, sessionID contracts.SessionID, projectID contracts.ProjectID, provider string) Model {
 	vp := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 	vp.SoftWrap = true
 	vp.MouseWheelEnabled = true
 
 	return Model{
-		src:       src,
-		keys:      k,
-		theme:     t,
-		sessionID: sessionID,
-		projectID: projectID,
-		provider:  provider,
-		viewport:  vp,
-		status:    statusLoading,
+		src:          src,
+		keys:         k,
+		theme:        t,
+		glamourStyle: glamourStyle,
+		sessionID:    sessionID,
+		projectID:    projectID,
+		provider:     provider,
+		viewport:     vp,
+		status:       statusLoading,
 	}
 }
 
@@ -127,6 +136,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) fetch(width int) tea.Cmd {
 	src := m.src
 	sessionID := m.sessionID
+	style := m.glamourStyle
 	if width <= 0 {
 		width = defaultRenderWidth
 	}
@@ -138,7 +148,7 @@ func (m Model) fetch(width int) tea.Cmd {
 			return errMsg{err: fmt.Errorf("read session: %w", err)}
 		}
 
-		rendered, err := renderMarkdown(conv, wrapWidth)
+		rendered, err := renderMarkdown(conv, style, wrapWidth)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("render transcript: %w", err)}
 		}
@@ -149,20 +159,17 @@ func (m Model) fetch(width int) tea.Cmd {
 // renderMarkdown turns a Conversation into the glamour-styled
 // string the viewport displays. The function is split out so
 // the Update method can re-run it on window-resize messages
-// without re-reading from disk.
-func renderMarkdown(conv contracts.Conversation, wrapWidth int) (string, error) {
+// without re-reading from disk. The style argument names the
+// glamour v2 stylesheet — the configuration boundary in
+// cmd/chronicle/main.go validates the value before it reaches
+// here, so the renderer trusts it.
+func renderMarkdown(conv contracts.Conversation, style string, wrapWidth int) (string, error) {
 	if wrapWidth < minimumWrapWidth {
 		wrapWidth = minimumWrapWidth
 	}
 	md := steps.Markdown(conv)
-	// Glamour v2 dropped WithAutoStyle in favour of explicit
-	// style selection. Until the next session adds a real
-	// terminal-background detection pass, the dark stylesheet
-	// is the safer default — most chronicle users live in a
-	// dark terminal, and the light variant on a dark
-	// background washes out.
 	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStandardStyle("dark"),
+		glamour.WithStandardStyle(style),
 		glamour.WithWordWrap(wrapWidth),
 	)
 	if err != nil {
@@ -215,7 +222,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// fetch path when the load completes.
 		if m.status == statusReady {
 			wrapWidth := msg.Width - viewportSidePadding*2
-			rendered, err := renderMarkdown(m.conv, wrapWidth)
+			rendered, err := renderMarkdown(m.conv, m.glamourStyle, wrapWidth)
 			if err == nil {
 				m.viewport.SetContent(rendered)
 			}

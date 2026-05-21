@@ -62,14 +62,19 @@ type UIConfig struct {
 }
 
 // TUIConfig collects the settings that apply only to the terminal
-// frontend. Theme controls the colour scheme, FiltersDefault controls
-// which content filters are on at startup, and NerdFont tells the
-// renderer whether it can use Nerd Font glyphs or has to fall back to
-// plain ASCII for the icons.
+// frontend. Theme controls the colour scheme. FiltersDefault controls
+// which content filters are on at startup. NerdFont tells the renderer
+// whether it can use Nerd Font glyphs or has to fall back to plain
+// ASCII. GlamourStyle picks the Markdown stylesheet the transcript
+// reader passes to glamour when it renders one session — the value is
+// one of the standard glamour v2 style names ("dark", "light",
+// "dracula", "tokyo-night", and a few others), with "dark" as the
+// default because most chronicle users live in a dark terminal.
 type TUIConfig struct {
 	Theme          string   `toml:"theme"`
 	FiltersDefault []string `toml:"filters_default"`
 	NerdFont       string   `toml:"nerd_font"`
+	GlamourStyle   string   `toml:"glamour_style"`
 }
 
 // WebConfig collects the settings that apply only to the web frontend.
@@ -134,6 +139,7 @@ func Defaults() Config {
 				Theme:          "auto",
 				FiltersDefault: []string{"tools", "meta"},
 				NerdFont:       "auto",
+				GlamourStyle:   "dark",
 			},
 			Web: WebConfig{
 				Host:        "127.0.0.1",

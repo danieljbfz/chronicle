@@ -87,6 +87,26 @@ func New(v Variant) Theme {
 	}
 }
 
+// ParseVariant maps the string value from a chronicle config file
+// to a Variant. The "auto" value, the "terminal" value, and the
+// empty string all map to VariantTerminal — the scheme that
+// inherits the user's terminal palette — because that is the
+// default chronicle ships with. The "dark" value maps to
+// VariantDark. Any other input falls through to VariantTerminal
+// with ok=false so the caller can warn the user that the value
+// they wrote was not recognised before the runtime continues with
+// the fallback.
+func ParseVariant(name string) (Variant, bool) {
+	switch name {
+	case "", "auto", "terminal":
+		return VariantTerminal, true
+	case "dark":
+		return VariantDark, true
+	default:
+		return VariantTerminal, false
+	}
+}
+
 func terminalTheme() Theme {
 	return Theme{
 		Variant:   VariantTerminal,

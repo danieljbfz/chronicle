@@ -25,18 +25,17 @@ const (
 )
 
 // appModel is the top-level tea.Model. The model owns the state
-// every screen shares (the composition.App handle, the theme,
-// the key bindings, the current terminal dimensions), the
-// per-screen Models that exist so far, and the screen
-// identifier that selects which one is active. The app routes
-// messages to the active screen and intercepts a small set of
-// cross-screen intents (OpenRequest, Back, Quit) before
-// forwarding the rest.
+// every screen shares, the per-screen Models that exist so far,
+// and the screen identifier that selects which one is active.
+// The app routes messages to the active screen and intercepts a
+// small set of cross-screen intents (OpenRequest, Back, Quit)
+// before forwarding the rest.
 type appModel struct {
-	app     *composition.App
-	keys    keys.KeyMap
-	theme   theme.Theme
-	version string
+	app          *composition.App
+	keys         keys.KeyMap
+	theme        theme.Theme
+	version      string
+	glamourStyle string
 
 	width  int
 	height int
@@ -52,14 +51,15 @@ type appModel struct {
 	transcript transcript.Model
 }
 
-func newAppModel(app *composition.App, k keys.KeyMap, t theme.Theme, version string) appModel {
+func newAppModel(app *composition.App, k keys.KeyMap, t theme.Theme, version, glamourStyle string) appModel {
 	return appModel{
-		app:      app,
-		keys:     k,
-		theme:    t,
-		version:  version,
-		current:  screenSessions,
-		sessions: sessions.New(app, k, t),
+		app:          app,
+		keys:         k,
+		theme:        t,
+		version:      version,
+		glamourStyle: glamourStyle,
+		current:      screenSessions,
+		sessions:     sessions.New(app, k, t),
 	}
 }
 
@@ -95,7 +95,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// fresh transcript reader for the chosen session and
 		// switch to it. The transcript's Init command kicks
 		// off the read-and-render pipeline.
-		m.transcript = transcript.New(m.app, m.keys, m.theme, msg.SessionID, msg.ProjectID, msg.Provider)
+		m.transcript = transcript.New(m.app, m.keys, m.theme, m.glamourStyle, msg.SessionID, msg.ProjectID, msg.Provider)
 		m.current = screenTranscript
 		// Seed the new transcript with the current terminal
 		// dimensions so its viewport sizes correctly before

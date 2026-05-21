@@ -18,7 +18,7 @@ import (
 // default state, the screen is in its loading branch, so the
 // breadcrumb sits above a "scanning" line.
 func TestAppModel_View_RendersBreadcrumb(t *testing.T) {
-	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0")
+	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0", DefaultGlamourStyle)
 
 	view := m.View()
 
@@ -40,7 +40,7 @@ func TestAppModel_View_RendersBreadcrumb(t *testing.T) {
 // guard the app model carries is exercised through the
 // no-filter default state of the screen.
 func TestAppModel_Update_QuitOnQ(t *testing.T) {
-	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0")
+	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0", DefaultGlamourStyle)
 
 	msg := tea.KeyPressMsg{Code: 'q', Text: "q"}
 
@@ -61,7 +61,7 @@ func TestAppModel_Update_QuitOnQ(t *testing.T) {
 // pushing the layout around. Phase 2 will replace this branch
 // with a real screen switch.
 func TestAppModel_Update_OpenRequestPublishesStatus(t *testing.T) {
-	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0")
+	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0", DefaultGlamourStyle)
 
 	_, cmd := m.Update(sessions.OpenRequestMsg{
 		SessionID: contracts.SessionID("abc-123"),
@@ -79,7 +79,7 @@ func TestAppModel_Update_OpenRequestPublishesStatus(t *testing.T) {
 // through to the embedded sessions screen so its list resizes
 // without losing the focus row.
 func TestAppModel_Update_WindowSizeForwards(t *testing.T) {
-	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0")
+	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0", DefaultGlamourStyle)
 
 	out, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	updated, ok := out.(appModel)

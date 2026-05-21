@@ -91,6 +91,44 @@ root    = "/Users/x/.cursor"
 	}
 }
 
+// TestLoad_tuiGlamourStyleDefault confirms the default style the
+// transcript reader uses when the user has not set one. The
+// chronicle binary's main package treats this value as the
+// fallback for any unknown value the user might type into the
+// glamour_style key, so a regression in the default would
+// silently flip every transcript over to a different look.
+func TestLoad_tuiGlamourStyleDefault(t *testing.T) {
+	cfg, err := Load(filepath.Join(t.TempDir(), "nope.toml"))
+	if err != nil {
+		t.Fatalf("Load(missing): %v", err)
+	}
+	if cfg.UI.TUI.GlamourStyle != "dark" {
+		t.Errorf("default glamour_style = %q, want %q", cfg.UI.TUI.GlamourStyle, "dark")
+	}
+}
+
+// TestLoad_tuiGlamourStyleOverride confirms the round-trip from
+// disk into the field the TUI reads. The chronicle binary's
+// main package consumes this value through cfg.UI.TUI.GlamourStyle,
+// so the test pins the path the live runtime depends on.
+func TestLoad_tuiGlamourStyleOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	body := `
+[ui.tui]
+glamour_style = "tokyo-night"
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.UI.TUI.GlamourStyle != "tokyo-night" {
+		t.Errorf("glamour_style = %q, want %q", cfg.UI.TUI.GlamourStyle, "tokyo-night")
+	}
+}
+
 // TestLoad_malformedTOMLReturnsError proves we fail loudly on a typo
 // in the user's config file. Falling back silently to defaults
 // would hide bugs in the user's own configuration and produce

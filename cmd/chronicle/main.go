@@ -11,13 +11,18 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui"
+	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/theme"
 	"github.com/danieljbfz/chronicle/composition"
+	"github.com/danieljbfz/chronicle/internal/config"
+	"github.com/danieljbfz/chronicle/internal/paths"
 )
 
 // version is the chronicle version string. We bump it by hand for
@@ -56,11 +61,34 @@ func newRootCmd() *cobra.Command {
 		Version:       version,
 		Args:          cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Step 1: load the user's config so the TUI can pick
+			// up the colour scheme and Markdown style choices
+			// the user wrote under [ui.tui]. A missing config
+			// file is not an error — Load returns the defaults.
+			locations, err := paths.Resolve()
+			if err != nil {
+				return fail("resolve paths: %v", err)
+			}
+			cfg, err := config.Load(locations.ConfigFile)
+			if err != nil {
+				return fail("load config: %v", err)
+			}
+
+			// Step 2: build the composition layer that every
+			// screen reads through.
 			app, err := composition.New()
 			if err != nil {
 				return fail("init: %v", err)
 			}
-			return tui.Run(app, tui.Options{Version: version})
+
+			// Step 3: translate the user's TUI config values
+			// into the runtime options the tui package expects.
+			// Unknown values fall back to the documented
+			// defaults with a one-line stderr warning so the
+			// user sees the substitution rather than wondering
+			// why their choice did not take effect.
+			opts := tuiOptionsFromConfig(cfg.UI.TUI, version, os.Stderr)
+			return tui.Run(app, opts)
 		},
 	}
 
@@ -76,6 +104,47 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newMemoryCmd())
 	cmd.AddCommand(newConfigCmd())
 	return cmd
+}
+
+// tuiOptionsFromConfig translates the user's [ui.tui] section
+// into the runtime options the tui package consumes. The
+// function is the configuration boundary §3.4 of SKILL_PROMPT
+// describes: it validates the user-supplied values, warns when
+// an unknown value cannot be honoured, and produces a struct
+// the TUI internals can trust without re-checking.
+//
+// The warnings go to the provided writer (stderr in production,
+// a buffer in any future test) on their own line, so a user
+// who runs chronicle redirected to a script still sees what
+// chronicle could not honour and why.
+func tuiOptionsFromConfig(cfg config.TUIConfig, version string, warn io.Writer) tui.Options {
+	// Step 1: resolve the colour scheme. The empty string and
+	// "auto" both fall through to the terminal palette, which
+	// is the chronicle default.
+	themeName := strings.TrimSpace(cfg.Theme)
+	variant, ok := theme.ParseVariant(themeName)
+	if !ok {
+		fmt.Fprintf(warn, "chronicle: unknown ui.tui.theme %q, falling back to the terminal palette\n", themeName)
+	}
+
+	// Step 2: resolve the glamour stylesheet. An empty value
+	// keeps the documented default. An unknown value warns and
+	// falls back to the same default rather than letting
+	// glamour fail at render time with a less helpful message.
+	style := strings.TrimSpace(cfg.GlamourStyle)
+	switch {
+	case style == "":
+		style = tui.DefaultGlamourStyle
+	case !tui.IsKnownGlamourStyle(style):
+		fmt.Fprintf(warn, "chronicle: unknown ui.tui.glamour_style %q, falling back to %q\n", style, tui.DefaultGlamourStyle)
+		style = tui.DefaultGlamourStyle
+	}
+
+	return tui.Options{
+		Theme:        variant,
+		GlamourStyle: style,
+		Version:      version,
+	}
 }
 
 // fail is the small helper subcommands use when they want to print
