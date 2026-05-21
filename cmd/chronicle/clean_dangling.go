@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -60,7 +59,7 @@ precision are preserved).`,
 				return fail("list: %v", err)
 			}
 			dangling := filterDanglingEntries(listings)
-			return runDanglingCleanup(app, dangling, apply, cmd.OutOrStdout())
+			return runDanglingCleanup(app, dangling, apply, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().BoolVar(&apply, "apply", false, "Actually remove entries (default is dry-run)")
@@ -84,15 +83,17 @@ func filterDanglingEntries(all []composition.ConfigProjectListing) []composition
 	return dangling
 }
 
-// runDanglingCleanup prints the planned removals to the
-// writer in a format the user can review at a glance.
-// When apply is true, the function then performs the
-// removal and reports the backup path the provider wrote.
+// runDanglingCleanup prints the planned removals to stdout in
+// a format the user can review at a glance. When apply is
+// true, the function then performs the removal and reports the
+// backup path the provider wrote to stderr.
 //
-// We split this body out of the cobra wiring so a future
-// test can exercise the rendering and the apply path with
-// a fake App, without going through the cobra machinery.
-func runDanglingCleanup(app *composition.App, dangling []composition.ConfigProjectListing, apply bool, stdout io.Writer) error {
+// The plan goes to stdout as the primary output and the apply
+// confirmation goes to stderr as status, the same split
+// runClean uses. Both writers arrive as parameters so a test
+// can capture either stream without redirecting the process's
+// own files.
+func runDanglingCleanup(app *composition.App, dangling []composition.ConfigProjectListing, apply bool, stdout, stderr io.Writer) error {
 	if len(dangling) == 0 {
 		fmt.Fprintln(stdout, "No dangling config-project entries. Every project the config file mentions still exists on disk.")
 		return nil
@@ -121,7 +122,7 @@ func runDanglingCleanup(app *composition.App, dangling []composition.ConfigProje
 		return fail("apply: %v", err)
 	}
 	for _, r := range results {
-		fmt.Fprintf(os.Stderr, "Removed %d %s from %s. Backup at %s\n",
+		fmt.Fprintf(stderr, "Removed %d %s from %s. Backup at %s\n",
 			len(r.RemovedKeys), composition.Pluralize(len(r.RemovedKeys), "entry", "entries"), r.Provider, r.BackupPath)
 	}
 	return nil

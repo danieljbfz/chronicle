@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"strings"
 	"testing"
@@ -52,7 +53,7 @@ func TestRunExport_writesMarkdownToStdoutWhenNoOut(t *testing.T) {
 	}
 	app := composition.NewForTest([]contracts.Provider{stubProvider{convo: convo}}, []fs.FS{fstest.MapFS{}})
 	var buf bytes.Buffer
-	if err := runExport(app, "abc", exportOpts{}, &buf); err != nil {
+	if err := runExport(app, "abc", exportOpts{}, &buf, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "hello") {

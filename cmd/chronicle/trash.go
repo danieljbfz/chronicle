@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -98,7 +97,7 @@ func newTrashRestoreCmd() *cobra.Command {
 			if err := app.TrashRestore(args[0]); err != nil {
 				return fail("restore: %v", err)
 			}
-			fmt.Fprintf(os.Stderr, "Restored entry %s.\n", args[0])
+			fmt.Fprintf(cmd.ErrOrStderr(), "Restored entry %s.\n", args[0])
 			return nil
 		},
 	}
@@ -132,10 +131,10 @@ only chronicle command that performs an unrecoverable delete.`,
 				fmt.Fprintln(cmd.OutOrStdout(), "Nothing to remove. Every entry is within its retention window.")
 				return nil
 			}
-			fmt.Fprintf(os.Stderr, "Removed %d %s:\n",
+			fmt.Fprintf(cmd.ErrOrStderr(), "Removed %d %s:\n",
 				len(removed), composition.Pluralize(len(removed), "entry", "entries"))
 			for _, id := range removed {
-				fmt.Fprintf(os.Stderr, "  %s\n", id)
+				fmt.Fprintf(cmd.ErrOrStderr(), "  %s\n", id)
 			}
 			return nil
 		},

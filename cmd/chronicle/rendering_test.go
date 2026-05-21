@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -108,7 +109,7 @@ func TestRunClean_dryRunPrintsPlanAndReminder(t *testing.T) {
 	// touches it. The apply path would, and that branch
 	// is covered by the composition-layer tests against a
 	// real App.
-	if err := runClean(nil, planned, false, &buf); err != nil {
+	if err := runClean(nil, planned, false, &buf, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -125,7 +126,7 @@ func TestRunClean_dryRunPrintsPlanAndReminder(t *testing.T) {
 // message instead of an empty table.
 func TestRunClean_emptyPlanPrintsNothingToCleanMessage(t *testing.T) {
 	var buf bytes.Buffer
-	if err := runClean(nil, nil, false, &buf); err != nil {
+	if err := runClean(nil, nil, false, &buf, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "Nothing to clean") {

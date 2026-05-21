@@ -69,7 +69,7 @@ The directory is created if it does not exist.`,
 			if len(args) != 1 {
 				return fail("missing session id (or pass --bulk <projectId>)")
 			}
-			return runExport(app, contracts.SessionID(args[0]), opts, cmd.OutOrStdout())
+			return runExport(app, contracts.SessionID(args[0]), opts, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().BoolVar(&noTools, "no-tools", false, "Drop tool use and tool result blocks")
@@ -96,7 +96,15 @@ type exportOpts struct {
 // call it with a fake App. It reads the session, applies
 // the filters the user asked for, renders Markdown, and
 // writes the result.
-func runExport(app *composition.App, id contracts.SessionID, opts exportOpts, stdout io.Writer) error {
+//
+// The rendered Markdown is the primary output. When no -o
+// path is set it goes to stdout, ready to pipe. When a path
+// is set the Markdown goes to the file and the "wrote N bytes"
+// line goes to stderr as status, matching the runBulkExport
+// sibling in this file. Both writers arrive as parameters so
+// a test can capture either stream rather than the process's
+// own os.Stdout and os.Stderr.
+func runExport(app *composition.App, id contracts.SessionID, opts exportOpts, stdout, stderr io.Writer) error {
 	conv, err := app.ReadSession(id)
 	if err != nil {
 		return fail("read session %q: %v", id, err)
@@ -115,7 +123,7 @@ func runExport(app *composition.App, id contracts.SessionID, opts exportOpts, st
 	if err := os.WriteFile(opts.outPath, []byte(md), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", opts.outPath, err)
 	}
-	fmt.Fprintf(os.Stderr, "Wrote %d bytes to %s\n", len(md), opts.outPath)
+	fmt.Fprintf(stderr, "Wrote %d bytes to %s\n", len(md), opts.outPath)
 	return nil
 }
 

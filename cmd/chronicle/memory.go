@@ -284,7 +284,7 @@ func newMemoryCleanCmd() *cobra.Command {
 			if err != nil {
 				return fail("plan: %v", err)
 			}
-			return runClean(app, []composition.PlannedDeletion{planned}, apply, cmd.OutOrStdout())
+			return runClean(app, []composition.PlannedDeletion{planned}, apply, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().BoolVar(&global, "global", false, "Clean the user-wide memory file instead of a project")

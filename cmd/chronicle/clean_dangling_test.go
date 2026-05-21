@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestRunDanglingCleanup_dryRunPrintsPlan(t *testing.T) {
 	// touches it. The apply path would, and that is
 	// covered by the composition-layer tests against a
 	// real fake App.
-	if err := runDanglingCleanup(nil, dangling, false, &buf); err != nil {
+	if err := runDanglingCleanup(nil, dangling, false, &buf, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -70,7 +71,7 @@ func TestRunDanglingCleanup_dryRunPrintsPlan(t *testing.T) {
 // of a blank screen.
 func TestRunDanglingCleanup_emptySaysSo(t *testing.T) {
 	var buf bytes.Buffer
-	if err := runDanglingCleanup(nil, nil, false, &buf); err != nil {
+	if err := runDanglingCleanup(nil, nil, false, &buf, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "No dangling config-project entries") {

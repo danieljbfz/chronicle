@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -73,7 +72,7 @@ func newCleanOrphansCmd() *cobra.Command {
 			if err != nil {
 				return fail("plan: %v", err)
 			}
-			return runClean(app, planned, apply, cmd.OutOrStdout())
+			return runClean(app, planned, apply, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().BoolVar(&apply, "apply", false, "Actually move files (default is dry-run)")
@@ -104,7 +103,7 @@ func newCleanAbandonedCmd() *cobra.Command {
 			if err != nil {
 				return fail("plan: %v", err)
 			}
-			return runClean(app, planned, apply, cmd.OutOrStdout())
+			return runClean(app, planned, apply, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().BoolVar(&apply, "apply", false, "Actually move files (default is dry-run)")
@@ -153,7 +152,7 @@ func newCleanStaleCmd() *cobra.Command {
 			if err != nil {
 				return fail("plan: %v", err)
 			}
-			return runClean(app, planned, apply, cmd.OutOrStdout())
+			return runClean(app, planned, apply, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().BoolVar(&apply, "apply", false, "Actually move files (default is dry-run)")
@@ -200,17 +199,22 @@ func parseDayDuration(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// runClean prints the planned deletions to the writer in a
-// format a person can review at a glance. When the caller
-// passed --apply, the function then runs the cleanup against
-// the filesystem. When --apply is missing, the function stops
-// after printing and reminds the user to pass --apply if they
-// want the cleanup to actually run.
+// runClean prints the planned deletions to stdout in a format
+// a person can review at a glance. When the caller passed
+// --apply, the function then runs the cleanup against the
+// filesystem and writes the confirmation to stderr. When
+// --apply is missing, the function stops after printing and
+// reminds the user to pass --apply if they want the cleanup to
+// actually run.
 //
-// Splitting this body out of the cobra wiring lets future
-// tests exercise the rendering and the apply path with a fake
-// App, without going through the cobra command machinery.
-func runClean(app *composition.App, planned []composition.PlannedDeletion, apply bool, stdout io.Writer) error {
+// The plan goes to stdout because it is the primary,
+// pipe-friendly output a user might capture. The apply
+// confirmation goes to stderr because it is human-readable
+// status, the same split the export and resume commands use.
+// Both destinations arrive as parameters rather than the
+// os.Stdout and os.Stderr globals, so a test can capture
+// either stream without redirecting the process's files.
+func runClean(app *composition.App, planned []composition.PlannedDeletion, apply bool, stdout, stderr io.Writer) error {
 	if len(planned) == 0 {
 		fmt.Fprintln(stdout, "Nothing to clean. Every session looks active.")
 		return nil
@@ -241,10 +245,10 @@ func runClean(app *composition.App, planned []composition.PlannedDeletion, apply
 	if err != nil {
 		return fail("execute: %v", err)
 	}
-	fmt.Fprintf(os.Stderr, "Moved %d %s into the trash.\n",
+	fmt.Fprintf(stderr, "Moved %d %s into the trash.\n",
 		len(entries), composition.Pluralize(len(entries), "session", "sessions"))
 	for _, entry := range entries {
-		fmt.Fprintf(os.Stderr, "  %s\n", entry.ID)
+		fmt.Fprintf(stderr, "  %s\n", entry.ID)
 	}
 	return nil
 }
