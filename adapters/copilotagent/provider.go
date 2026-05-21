@@ -172,7 +172,7 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 			Project:      agentProjectID,
 			StartedAt:    conv.StartedAt,
 			LastActive:   conv.EndedAt,
-			Title:        sessionTitle(conv),
+			Title:        conv.ListingTitle(),
 			TurnCount:    len(conv.Messages),
 			SizeBytes:    size,
 			Model:        conv.Model,
@@ -207,18 +207,6 @@ func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Co
 	}
 	conv.Project = agentProjectID
 	return conv, nil
-}
-
-// sessionTitle picks the best title for a session listing.
-// readSession populates conv.Title from
-// vscode.metadata.json when that sidecar is present.
-// Otherwise the function falls back to the first user
-// prompt, the same convention every other adapter follows.
-func sessionTitle(conv contracts.Conversation) string {
-	if conv.Title != "" {
-		return conv.Title
-	}
-	return conv.FirstUserPrompt()
 }
 
 // Compile-time check: *Provider satisfies the base

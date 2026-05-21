@@ -212,7 +212,7 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 			Project:      project,
 			StartedAt:    conv.StartedAt,
 			LastActive:   conv.EndedAt,
-			Title:        sessionTitle(conv),
+			Title:        conv.ListingTitle(),
 			TurnCount:    len(conv.Messages),
 			SizeBytes:    size,
 			Model:        conv.Model,
@@ -234,17 +234,6 @@ func chatDirForProject(project contracts.ProjectID) string {
 		return emptyWindowChatSessionsDir
 	}
 	return path.Join(workspaceStorageDir, string(project), chatSessionsDir)
-}
-
-// sessionTitle picks the best title for a session listing. Copilot
-// sometimes records a custom title that the user typed (or that
-// VS Code auto-generated from the first prompt). When that exists,
-// we use it. Otherwise we fall back to the first user prompt.
-func sessionTitle(conv contracts.Conversation) string {
-	if conv.Title != "" {
-		return conv.Title
-	}
-	return conv.FirstUserPrompt()
 }
 
 // ReadSession finds the session file by walking both the workspace
