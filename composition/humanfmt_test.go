@@ -112,6 +112,20 @@ func TestHumanAge_pinsTheTimeBuckets(t *testing.T) {
 	}
 }
 
+// TestHumanAge_zeroTimeReturnsUnknown pins the zero-value
+// guard. An adapter that did not find a timestamp in its
+// source data leaves the field at time.Time{}, and the user
+// reported the unguarded version of this function rendering
+// such fields as "106751d ago" — the days since Go's zero
+// time. The guard at the top of HumanAge returns the literal
+// "unknown" so the presentation layer reads the absence as
+// deliberate rather than as a broken number.
+func TestHumanAge_zeroTimeReturnsUnknown(t *testing.T) {
+	if got := HumanAge(time.Time{}); got != "unknown" {
+		t.Errorf("HumanAge(zero) = %q, want %q", got, "unknown")
+	}
+}
+
 // TestTrashEntry_StringFormatsAUsefulOneLineSummary pins the
 // format the `chronicle trash list` command uses. The eye
 // scans these lines top to bottom looking for the entry

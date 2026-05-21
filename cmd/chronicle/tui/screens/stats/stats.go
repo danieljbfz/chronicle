@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -70,6 +71,7 @@ type Model struct {
 	theme theme.Theme
 
 	viewport viewport.Model
+	help     help.Model
 	spinner  ui.Spinner
 	status   status
 	err      error
@@ -91,11 +93,19 @@ func New(src Source, k keys.KeyMap, t theme.Theme) Model {
 	vp := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 	vp.MouseWheelEnabled = true
 
+	// The help component is the same one the bubbles list uses
+	// internally for the session list's help row, so the
+	// rendered line reads in the same visual style across every
+	// screen. SetWidth on each WindowSizeMsg keeps its built-in
+	// truncation honest at narrow terminals.
+	h := help.New()
+
 	return Model{
 		src:      src,
 		keys:     k,
 		theme:    t,
 		viewport: vp,
+		help:     h,
 		spinner:  ui.NewSpinner(t, "Computing the summary across every provider…"),
 		status:   statusLoading,
 	}
@@ -157,6 +167,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.help.SetWidth(msg.Width)
 		viewportHeight := msg.Height - footerLines
 		if viewportHeight < 1 {
 			viewportHeight = 1
@@ -222,10 +233,28 @@ func (m Model) contentWidth() int {
 }
 
 // View renders the screen's content below the app's tab strip.
-// The body is the loading or error sentence or the viewport, and
-// the footer carries the divider and the short help line.
+// The body is the loading or error sentence or the viewport,
+// and the footer is the short help line. The body is placed
+// inside a fixed-height region so a short loading or error
+// message does not pull the footer up beside it — the footer
+// stays anchored at the bottom of the screen no matter how
+// short the body is.
 func (m Model) View() string {
-	return m.renderBody() + "\n" + m.renderFooter()
+	return m.placedBody() + "\n" + m.renderFooter()
+}
+
+// placedBody renders the body inside a fixed-height region so a
+// short status (the one-line spinner row, the two-line error)
+// does not pull the footer up beside it. The viewport already
+// sizes itself to the body's height through SetHeight, so the
+// ready state passes through unchanged.
+func (m Model) placedBody() string {
+	body := m.renderBody()
+	height := m.height - footerLines
+	if height < 1 {
+		return body
+	}
+	return lipgloss.PlaceVertical(height, lipgloss.Top, body)
 }
 
 func (m Model) renderBody() string {
@@ -242,13 +271,16 @@ func (m Model) renderBody() string {
 	return ""
 }
 
+// renderFooter paints the help line at the bottom of the
+// screen. The shape matches what the bubbles list renders
+// inside the session list — same component, same defaults,
+// same styling — so the help row reads identically across
+// every screen. ShortHelpView truncates its own output when
+// the line would not fit the configured width.
 func (m Model) renderFooter() string {
-	width := m.width
-	if width < minContentWidth {
-		width = minContentWidth
-	}
-	divider := m.theme.Muted.Render(strings.Repeat("─", width))
-	return divider + "\n" + ui.HelpBar(m.theme, m.keys, extraHelpBindings, width)
+	bindings := append([]key.Binding{}, extraHelpBindings...)
+	bindings = append(bindings, m.keys.ShortHelp()...)
+	return m.help.ShortHelpView(bindings)
 }
 
 // renderStats lays the summary out as a string the viewport

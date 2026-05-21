@@ -50,7 +50,21 @@ func HumanBytes(n int64) string {
 // misleading ("4w ago" reads like four whole calendar
 // weeks even when the actual gap was 28 days that crossed
 // a month boundary).
+//
+// The zero value of time.Time is Go's "no timestamp recorded"
+// sentinel, and an adapter that did not find a timestamp in
+// its source data leaves the field at that value. Passing it
+// to time.Since would produce a nonsense reading along the
+// lines of "106751d ago" (the number of days between Go's
+// zero time and the moment of the call). The guard at the top
+// returns the literal "unknown" instead, which the
+// presentation layer can render as-is or pair with a muted
+// style so the absence reads as deliberate rather than as a
+// broken number.
 func HumanAge(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:

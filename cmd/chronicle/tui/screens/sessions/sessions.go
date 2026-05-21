@@ -28,19 +28,9 @@ import (
 
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/keys"
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/theme"
-	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/ui"
 	"github.com/danieljbfz/chronicle/composition"
 	"github.com/danieljbfz/chronicle/contracts"
 )
-
-// extraHelpBindings lists the bindings this screen advertises in
-// addition to the global ones. Enter opens the highlighted
-// session; filter and refresh are session-list specific.
-var extraHelpBindings = []key.Binding{
-	key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
-	key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-	key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
-}
 
 // Lister is the small subset of composition.App methods the
 // session list relies on. Defining it inside the screen lets the
@@ -84,10 +74,9 @@ type Model struct {
 	keys  keys.KeyMap
 	theme theme.Theme
 
-	list    list.Model
-	spinner ui.Spinner
-	status  status
-	err     error
+	list   list.Model
+	status status
+	err    error
 
 	width  int
 	height int
@@ -112,28 +101,21 @@ func New(src Lister, k keys.KeyMap, t theme.Theme) Model {
 	l.SetShowStatusBar(true)
 	l.SetStatusBarItemName("session", "sessions")
 	l.SetFilteringEnabled(true)
-	// The shared ui.HelpBar at the footer is the one place the
-	// TUI advertises bindings, so the list's built-in help row
-	// would duplicate it. Turning it off keeps every screen on
-	// one help line in one canonical style.
-	l.SetShowHelp(false)
+	l.SetShowHelp(true)
 
 	return Model{
-		src:     src,
-		keys:    k,
-		theme:   t,
-		list:    l,
-		spinner: ui.NewSpinner(t, "Scanning providers for sessions…"),
-		status:  statusLoading,
+		src:    src,
+		keys:   k,
+		theme:  t,
+		list:   l,
+		status: statusLoading,
 	}
 }
 
 // Init returns the command that loads sessions for the first
-// frame, batched with the spinner's tick command so the loading
-// row animates and the elapsed counter updates while the fetch
-// is in flight.
+// frame.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.fetch(), m.spinner.TickCmd())
+	return m.fetch()
 }
 
 // fetch returns a command that calls into the Lister and yields
@@ -172,10 +154,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.height = msg.Height
 		// The app draws the tab strip and divider above this
 		// screen and forwards a height already reduced by that
-		// chrome. The screen reserves footerHeight rows for its
-		// own divider plus the shared help line and hands the
-		// rest to the list.
-		listHeight := msg.Height - footerHeight
+		// chrome, so the list takes the full height it receives.
+		// The list manages its own area within that, including
+		// its status bar and help row.
+		listHeight := msg.Height
 		if listHeight < 1 {
 			listHeight = 1
 		}
@@ -212,19 +194,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, openRequest(item.listing)
 		case key.Matches(msg, m.keys.Refresh):
 			m.status = statusLoading
-			m.spinner = ui.NewSpinner(m.theme, "Refreshing the session list…")
-			return m, tea.Batch(m.fetch(), m.spinner.TickCmd())
-		}
-	}
-
-	// The spinner only matters while the screen is loading.
-	// Forwarding ticks after the load resolves would leave the
-	// glyph animating behind the populated list.
-	if m.status == statusLoading {
-		var spinCmd tea.Cmd
-		m.spinner, spinCmd = m.spinner.Update(msg)
-		if spinCmd != nil {
-			return m, spinCmd
+			return m, m.fetch()
 		}
 	}
 
@@ -232,11 +202,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
 }
-
-// footerHeight is the number of terminal rows the screen reserves
-// for its own footer: the divider line above the help bar plus
-// the help bar itself.
-const footerHeight = 2
 
 // IsFiltering reports whether the user is currently editing the
 // filter input. The top-level app model checks this before it
@@ -261,10 +226,10 @@ func (m Model) PublishStatusMessage(s string) (Model, tea.Cmd) {
 
 // View renders the screen's content as a string. The app draws
 // the tab strip above this and wraps the whole frame in a
-// tea.View, so the session list owns the body plus its own
-// footer (divider plus the shared help bar) beneath the chrome.
+// tea.View, so the session list owns only the area beneath the
+// chrome.
 func (m Model) View() string {
-	return m.renderBody() + "\n" + m.renderFooter()
+	return m.renderBody()
 }
 
 // renderBody returns the screen's content below the app's chrome.
@@ -274,7 +239,7 @@ func (m Model) View() string {
 func (m Model) renderBody() string {
 	switch m.status {
 	case statusLoading:
-		return m.spinner.View()
+		return m.theme.Muted.Render("Scanning providers for sessions…")
 	case statusError:
 		return m.theme.Error.Render("Could not load sessions: "+m.err.Error()) +
 			"\n\n" +
@@ -289,24 +254,6 @@ func (m Model) renderBody() string {
 	}
 	return ""
 }
-
-// renderFooter paints the divider and the shared help line that
-// sit beneath the body. Every screen uses the same shape, so the
-// help row reads identically across the TUI.
-func (m Model) renderFooter() string {
-	width := m.width
-	if width < minFooterWidth {
-		width = minFooterWidth
-	}
-	divider := m.theme.Muted.Render(strings.Repeat("─", width))
-	return divider + "\n" + ui.HelpBar(m.theme, m.keys, extraHelpBindings, width)
-}
-
-// minFooterWidth is the floor the footer renders at. Below it the
-// terminal is too narrow for any layout that makes sense, and the
-// terminal will clip overflow rather than the renderer producing
-// a broken line.
-const minFooterWidth = 20
 
 // openRequest wraps a SessionListing in an OpenRequestMsg and
 // returns the result as a tea.Cmd. The list's Update returns the

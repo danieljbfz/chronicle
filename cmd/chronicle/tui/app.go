@@ -37,7 +37,13 @@ type appModel struct {
 	order   []section
 	meta    map[section]sectionMeta
 	screens map[section]Screen
-	active  section
+	// initialised tracks which sections have already had their
+	// Init run. Sections start their loads lazily, the moment
+	// the user first activates them, so an expensive screen
+	// (the stats summary, which walks every session on every
+	// provider) does not block the program's first frame.
+	initialised map[section]bool
+	active      section
 
 	transcript     transcript.Model
 	showTranscript bool
@@ -62,22 +68,38 @@ func newAppModel(app *composition.App, k keys.KeyMap, t theme.Theme, version, gl
 		order:        order,
 		meta:         meta,
 		screens:      screens,
+		initialised:  map[section]bool{},
 		active:       sectionSessions,
 	}
 }
 
-// Init starts every section's load, not just the active one, so a
-// section the user switches to is already populated the moment its
-// tab is selected rather than flashing a loading state on arrival.
-// Chronicle's data is local and the per-section reads are cheap, so
-// loading all of them up front costs little and buys instant tab
-// switches.
+// Init starts the active section's load. Other sections are
+// initialised lazily, the first time the user activates them.
+// Eagerly loading every section at startup turned out to be a
+// real performance hazard: the stats screen walks every session
+// on every provider to compute its summary, which on a
+// realistic install (one or two hundred sessions across two
+// providers) is a multi-second cost the user pays before any
+// frame renders. Lazy initialisation lets the program show the
+// active section's first frame immediately, and lets the load
+// for an expensive section happen only when the user actually
+// asks to see it.
 func (m appModel) Init() tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(m.order))
-	for _, sec := range m.order {
-		cmds = append(cmds, m.screens[sec].Init())
+	return m.initSection(m.active)
+}
+
+// initSection runs the named section's Init exactly once, the
+// first time the section becomes active. Subsequent activations
+// are no-ops, so a user tabbing back and forth between sections
+// does not re-trigger the loads. The initialised map is a
+// reference type in Go, so the value receiver here still
+// records the activation in the map every caller shares.
+func (m appModel) initSection(sec section) tea.Cmd {
+	if m.initialised[sec] {
+		return nil
 	}
-	return tea.Batch(cmds...)
+	m.initialised[sec] = true
+	return m.screens[sec].Init()
 }
 
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -121,7 +143,11 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.showTranscript && !m.isFiltering() {
 			if next, ok := m.sectionForKeypress(msg); ok {
 				m.active = next
-				return m, nil
+				// Initialise the section on its first
+				// activation. The command is nil for a
+				// section the user has visited before, so a
+				// repeat switch is free.
+				return m, m.initSection(next)
 			}
 		}
 

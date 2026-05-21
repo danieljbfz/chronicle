@@ -307,6 +307,88 @@ sections register a tab, so the strip grows as phases 4 to 6
 land rather than showing placeholder tabs for screens that do
 not exist yet.
 
+### 2026-05-21 — Phase 3 polish pass: consistent chrome, lazy loads, footer anchoring
+
+After phase 3 the user inspected the running TUI on real data
+and flagged several issues: the help row at the bottom of the
+stats screen overflowed and clipped the trailing entry to
+"1-5 s", the loading message was a motionless "Computing the
+summary…" with no sign of progress, the help-row style
+differed between the session list and the new screens, the
+footer snapped up beside the spinner during loading rather
+than staying at the bottom of the screen, switching to the
+stats section appeared to freeze the program, and an "ago"
+reading on Copilot rows showed the value as "106751d ago".
+
+The session-list footer is the **reference design**, not the
+shape to replace. The bubbles list's built-in status bar
+plus its built-in help row is what every screen should look
+like. The first cut of this polish pass added a custom
+`ui.HelpBar` and made the session list use it too, which
+broke the reference look. The fix is the other direction:
+keep the session list as-is and bring the transcript and
+stats screens into the same shape by using the bubbles
+`help.Model` component directly with `SetWidth` so its
+built-in truncation handles the overflow. The custom
+`ui.HelpBar` is gone.
+
+A `ui.Spinner` component now renders the loading row with the
+bubbles spinner glyph plus a live elapsed-time counter. The
+row reads "Loading transcript… (1.2 s)" and updates with
+every tick. The format switches to "(Xm YYs)" past a minute
+so a chronically slow load stays under ten characters. Each
+loading-capable screen holds a Spinner alongside its status
+flag and batches the spinner's tick command into Init and
+into Refresh.
+
+The footer is now anchored to the bottom of the screen
+through `lipgloss.PlaceVertical`. During loading or error
+states the spinner sits at the top of the body region and
+blank rows fill the space down to the footer, so the help
+line stays where the user expects it to be rather than
+floating up beside a one-line message.
+
+`composition.HumanAge` now returns the literal "unknown" when
+its input is the zero value of `time.Time`. The unguarded
+version was rendering missing timestamps as the days since
+Go's zero time (the "106751d ago" the user reported). The
+zero value arrives at the function whenever an adapter could
+not pull a timestamp from its source data, which on real
+Copilot Chat sessions is common when `lastMessageDate` is
+absent from the snapshot.
+
+The biggest finding from the live test was a real
+performance problem. `composition.App.Stats` on the user's
+real data takes 14.8 seconds (5.5 s Claude, 9 s Copilot
+Chat). The cause is each adapter's `ListSessions` parsing
+every session file to fill `SessionSummary.LastActive`,
+`TurnCount`, and the other derived fields. The CLI command
+inherits this cost too. The contract claimed "bounded by
+listing cost rather than parse cost", but the implementation
+has been parsing all along. Phase 3 made the TUI worse than
+the CLI here by batching every section's Init at startup —
+even sessions the user never visits — so chronicle paid the
+stats cost before its first frame rendered.
+
+The immediate fix is lazy section initialisation: `app.go`
+only inits the active section at startup and inits other
+sections the first time the user activates them. Startup is
+instant again, and the stats wait happens only when the user
+asks for stats. The deeper fix — making `ListSessions` not
+parse every file — is recorded as an open question for a
+future session, because it touches all three adapters and
+the composition contract semantics.
+
+**Principle for every later screen:** the bubbles list's
+built-in chrome (status bar plus help row) is the reference
+shape. Screens that do not embed a list (the transcript
+reader, the stats screen, and the doctor/trash/memory
+screens in later phases) use a `help.Model` directly with
+`SetWidth` so the rendered line is identical. The
+`ui.Spinner` is the canonical loading indicator and lives
+behind `lipgloss.PlaceVertical` so the footer stays at the
+bottom.
+
 ### 2026-05-21 — Codebase-wide review after phase 2
 
 After phase 2 the user asked for a full review of the whole
