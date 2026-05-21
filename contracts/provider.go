@@ -33,6 +33,20 @@ import "io/fs"
 // error. We set Version to "unknown" and the rest of the system
 // stays read-only.
 //
+// Detect runs before the listing and reading methods, and the
+// caller is responsible for that order. Composition.New calls
+// Detect on every provider through detectAll before it serves a
+// single ListProjects, ListSessions, or ReadSession call. The
+// ordering matters because the listing and reading methods stamp
+// the detected StorageVersion and its Capabilities onto the
+// SessionSummary and Conversation values they return, reading the
+// version from the cache Detect populated. A caller that skips
+// Detect gets results whose Source and Capabilities fields are
+// the zero value rather than the real storage shape. The adapters
+// trust the caller to follow this order rather than re-detecting
+// defensively on every read, which keeps the detection cost paid
+// once per process and the read methods focused on one job.
+//
 // Every Provider has to follow four rules.
 //
 //  1. Detect the storage version from a fingerprint of the first
