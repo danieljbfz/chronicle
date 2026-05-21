@@ -61,19 +61,21 @@ automatically from there.
 
 What is left before phase 4 starts:
 
-1. **Resolve the scroll-latency open question** so the
-   transcript reader and the stats viewport scroll
-   responsively. The hypothesis is the spinner's tick
-   command continuing to fire after the load resolves, but
-   it needs a `teatest`-driven investigation rather than a
-   guess. Recorded under "Open questions" below.
-2. **Research the doctor layout.** Read `composition/doctor.go`
-   for the result shape, `cmd/chronicle/doctor.go` for how
-   the CLI already renders it, and decide whether one card
-   per provider or one table row per provider reads better
-   in the terminal. Surface to the user before writing code.
-3. **Execute, review, commit** on the same cadence the
+1. **Research the doctor layout.** Read
+   `composition/doctor.go` for the result shape,
+   `cmd/chronicle/doctor.go` for how the CLI already
+   renders it, and decide whether one card per provider or
+   one table row per provider reads better in the
+   terminal. Surface to the user before writing code.
+2. **Execute, review, commit** on the same cadence the
    earlier phases used.
+
+The remaining open question is the latent `Stats` perf
+hazard (`ListSessions` parses every file). It does not
+block phase 4 because lazy section initialisation already
+hides the cost from first launch — the user only pays it
+when they open stats. The fix is a composition-layer
+refactor recorded under "Open questions" below.
 
 ## Decisions
 
@@ -481,6 +483,41 @@ screens in later phases) use a `help.Model` directly with
 behind `lipgloss.PlaceVertical` so the footer stays at the
 bottom.
 
+### 2026-05-21 — Transcript SoftWrap: off (resolves scroll latency)
+
+The user reported scroll on the transcript reader felt
+queued — keypresses piled up and the viewport moved by
+itself after the user stopped pressing. The earlier
+hypothesis was the spinner's tick command continuing past
+the load, but the profile told a different story. A
+benchmark of `View` on a one-megabyte rendered body showed
+11.8 milliseconds per frame, 70% of the 16-millisecond
+60-fps budget; under that load the runtime drops frames and
+keypresses queue.
+
+Ninety percent of the View cost was in the bubbles
+viewport's `calculateLine`, which iterates every line of
+the content (calling `ansi.StringWidth` per line) when
+`SoftWrap = true`. For a 15,000-line body that is 15,000
+grapheme-cluster walks per frame.
+
+The transcript does not need SoftWrap. The glamour renderer
+already word-wraps the Markdown to wrapWidth during
+`renderMarkdown`, so every line the viewport receives is
+already at most wrapWidth wide. Setting `SoftWrap = false`
+drops the per-frame cost from 11.8 ms to 0.29 ms — a 40x
+improvement that puts every render well inside the
+60-fps budget.
+
+`TestView_StaysWellUnderTheFrameBudget` pins the property:
+View on a 1 MB body must complete in under five
+milliseconds under the race detector, which leaves room for
+slower CI machines while still catching the eleven-
+millisecond regression the user reported. The supporting
+benchmarks (`BenchmarkView_RealWorldTranscript`,
+`BenchmarkView_HugeRenderedBody`) give the next session a
+measurement to start from rather than a guess.
+
 ### 2026-05-21 — Codebase-wide review after phase 2
 
 After phase 2 the user asked for a full review of the whole
@@ -519,26 +556,8 @@ The handoff's "Open questions" table is resolved under
 them, and each one moves to "Decisions" with a dated entry once
 it is answered.
 
-### Scroll latency in viewport-driven screens (open, blocks phase 4)
-
-The user reported that pressing j/k repeatedly on the
-transcript reader feels queued — the viewport advances
-slowly behind the keypresses and "moves by itself for a
-bit" after the user stops pressing. The hypothesis is the
-spinner's tick command continuing to fire after the load
-resolves: each tick goes through the Bubble Tea event loop,
-the screen sees `status != statusLoading` and skips the
-spinner update, but the next tick is already scheduled.
-Over the lifetime of the program the ticks pile up against
-keypresses inside the runtime's message queue.
-
-The fix needs a `teatest`-driven investigation rather than
-a guess. The next session sets up `teatest` (canonical
-import `github.com/charmbracelet/x/exp/teatest/v2`), writes
-a test that sends ten j keys and asserts the viewport
-position advances by ten the same render, and only then
-commits the fix. Without the test the same scroll-feels-
-slow report could come back through a different cause.
+*(scroll latency is resolved — see "Decisions →
+Transcript SoftWrap" below)*
 
 ### Stats walks every session file (open, latent perf hazard)
 
@@ -890,6 +909,32 @@ calendar day.
   Stats walks every file) and are recorded under "Open
   questions" above. The audit is the source of truth
   going forward — the handoff prompt is no longer needed.
+
+### 2026-05-21 — Session 2 continued (scroll-latency investigation)
+
+- Investigated the scroll-latency report empirically
+  rather than by guess. A direct-Update test proved the
+  screen's Update path advances the viewport one position
+  per keypress with no delay; the app's keypress handler
+  is pure logic with no I/O; the bubble tea renderer
+  runs at 60 fps by default. None of those were the
+  bottleneck.
+- A CPU profile of `View` on a one-megabyte rendered
+  body showed 11.8 milliseconds per frame, 90% of which
+  was in the bubbles viewport's `calculateLine` calling
+  `ansi.StringWidth` on every line of the content
+  because `SoftWrap = true`. For a 15,000-line body that
+  is 15,000 grapheme-cluster walks per frame, every frame.
+- The fix is one line: `SoftWrap = false`. The glamour
+  renderer already word-wraps the Markdown during
+  `renderMarkdown`, so the viewport never sees lines
+  wider than the terminal — SoftWrap was redoing the
+  same work for no benefit. Cost dropped 40x, from
+  11.8 ms to 0.29 ms per frame. Two benchmarks and a
+  property test
+  (`TestView_StaysWellUnderTheFrameBudget`) lock the
+  performance ceiling so a future regression fails the
+  test before it reaches the user. One commit, green.
 
 ## Bubble Tea v2 API notes
 
