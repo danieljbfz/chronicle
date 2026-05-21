@@ -28,9 +28,20 @@ import (
 
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/keys"
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/theme"
+	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/ui"
 	"github.com/danieljbfz/chronicle/composition"
 	"github.com/danieljbfz/chronicle/contracts"
 )
+
+// extraHelpBindings lists the bindings this screen advertises
+// beyond the global short help. Enter opens the highlighted
+// session and slash opens the bubbles list's filter input.
+// Refresh is global (the app handles it), so it does not
+// appear here.
+var extraHelpBindings = []key.Binding{
+	key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+	key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+}
 
 // Lister is the small subset of composition.App methods the
 // session list relies on. Defining it inside the screen lets the
@@ -73,49 +84,49 @@ type Model struct {
 	src   Lister
 	keys  keys.KeyMap
 	theme theme.Theme
+	frame ui.Frame
 
-	list   list.Model
-	status status
-	err    error
+	list    list.Model
+	spinner ui.Spinner
+	status  status
+	err     error
 
 	width  int
 	height int
 }
 
 // New returns a Model in its loading state. Init kicks off the
-// asynchronous fetch through src.ListSessionsAll, and the
-// "Scanning providers" message stays on screen until the
-// fetch's loadedMsg or errMsg arrives.
-//
-// The list is configured for a single visual register — title
-// hidden so the screen's own header is the only top-level
-// label, status bar visible so the user always sees the session
-// count and any transient status messages, help visible so
-// every binding the screen accepts is one keystroke away from
-// being discoverable.
+// asynchronous fetch through src.ListSessionsAll. The shared
+// ui.Frame draws the loading row, the status indicator, and the
+// help footer, so the bubbles list's own equivalents are turned
+// off — the frame is the one place those rows are rendered for
+// every screen.
 func New(src Lister, k keys.KeyMap, t theme.Theme) Model {
 	home, _ := os.UserHomeDir()
 
 	l := list.New(nil, newDelegate(t, home), 0, 0)
 	l.SetShowTitle(false)
-	l.SetShowStatusBar(true)
-	l.SetStatusBarItemName("session", "sessions")
+	l.SetShowStatusBar(false)
+	l.SetShowHelp(false)
 	l.SetFilteringEnabled(true)
-	l.SetShowHelp(true)
 
 	return Model{
-		src:    src,
-		keys:   k,
-		theme:  t,
-		list:   l,
-		status: statusLoading,
+		src:     src,
+		keys:    k,
+		theme:   t,
+		frame:   ui.NewFrame(t, k),
+		list:    l,
+		spinner: ui.NewSpinner(t, "Scanning providers for sessions…"),
+		status:  statusLoading,
 	}
 }
 
 // Init returns the command that loads sessions for the first
-// frame.
+// frame, batched with the spinner's tick command so the
+// loading row animates and the elapsed counter updates while
+// the fetch is in flight.
 func (m Model) Init() tea.Cmd {
-	return m.fetch()
+	return tea.Batch(m.fetch(), m.spinner.TickCmd())
 }
 
 // fetch returns a command that calls into the Lister and yields
@@ -152,16 +163,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// The app draws the tab strip and divider above this
-		// screen and forwards a height already reduced by that
-		// chrome, so the list takes the full height it receives.
-		// The list manages its own area within that, including
-		// its status bar and help row.
-		listHeight := msg.Height
-		if listHeight < 1 {
-			listHeight = 1
-		}
-		m.list.SetSize(msg.Width, listHeight)
+		// The frame draws the help footer (one or two rows
+		// depending on wrap) and an optional status row above
+		// it. The list fills whatever the frame's body region
+		// leaves it. WindowSizeMsg arrives with the screen's
+		// already-reduced height (the app subtracted its tab
+		// strip), so the list's size is the body region width
+		// times that height minus the rows the frame reserves.
+		listWidth, listHeight := m.bodyDimensions()
+		m.list.SetSize(listWidth, listHeight)
 	case loadedMsg:
 		sortByLastActive(msg.listings)
 		items := make([]list.Item, len(msg.listings))
@@ -192,15 +202,32 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, openRequest(item.listing)
-		case key.Matches(msg, m.keys.Refresh):
-			m.status = statusLoading
-			return m, m.fetch()
+		}
+	}
+
+	// The spinner only matters while the screen is loading.
+	// Forwarding ticks after the load resolves would leave the
+	// glyph animating behind a populated list.
+	if m.status == statusLoading {
+		var spinCmd tea.Cmd
+		m.spinner, spinCmd = m.spinner.Update(msg)
+		if spinCmd != nil {
+			return m, spinCmd
 		}
 	}
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+// Refresh returns the model to its loading state and kicks off
+// a fresh fetch. The app calls this on the global refresh key
+// (r) so every section refreshes through one uniform path.
+func (m Model) Refresh() (Model, tea.Cmd) {
+	m.status = statusLoading
+	m.spinner = ui.NewSpinner(m.theme, "Refreshing the session list…")
+	return m, tea.Batch(m.fetch(), m.spinner.TickCmd())
 }
 
 // IsFiltering reports whether the user is currently editing the
@@ -212,48 +239,74 @@ func (m Model) IsFiltering() bool {
 	return m.list.SettingFilter()
 }
 
-// PublishStatusMessage pushes a transient note into the list's
-// status bar. The list rotates the message back to the item
-// count after a few seconds. The app model calls this to
-// surface a short notice — for example, "Transcript reader is
-// wiring up" — without pushing the rest of the screen layout
-// around. Returning the updated Model alongside the cmd keeps
-// the call site consistent with every other Update path.
-func (m Model) PublishStatusMessage(s string) (Model, tea.Cmd) {
-	cmd := m.list.NewStatusMessage(s)
-	return m, cmd
-}
-
-// View renders the screen's content as a string. The app draws
-// the tab strip above this and wraps the whole frame in a
-// tea.View, so the session list owns only the area beneath the
-// chrome.
+// View renders the screen through the shared frame so the
+// session list draws the same loading, empty, error, footer,
+// and status chrome every other screen draws. The screen owns
+// only the body content; the frame owns the rest.
 func (m Model) View() string {
-	return m.renderBody()
+	return m.frame.Render(m.width, m.height, m.statusLine(), extraHelpBindings, m.state())
 }
 
-// renderBody returns the screen's content below the app's chrome.
-// Each status case produces full-sentence prose so a user who
-// lands on the screen mid-state always knows what is happening
-// and what to do next.
-func (m Model) renderBody() string {
+// state maps the screen's status flag to the frame's State.
+// Loading hands the spinner to the frame; empty and error
+// hand full-sentence prose; ready hands the list's own
+// rendered View. The shape of each branch matches the rules
+// the frame imposes on every screen.
+func (m Model) state() ui.State {
 	switch m.status {
 	case statusLoading:
-		return m.theme.Muted.Render("Scanning providers for sessions…")
+		return ui.Loading(m.spinner)
 	case statusError:
-		return m.theme.Error.Render("Could not load sessions: "+m.err.Error()) +
-			"\n\n" +
-			m.theme.Muted.Render("Run `chronicle doctor` for the per-provider diagnostic.")
+		return ui.Error(m.err, "Run `chronicle doctor` for the per-provider diagnostic.")
 	case statusReady:
 		if len(m.list.Items()) == 0 {
-			return m.theme.Subtitle.Render("No sessions found across any detected provider.") +
-				"\n\n" +
-				m.theme.Muted.Render("Run `chronicle doctor` to check whether the provider roots are reachable, or open a new conversation in your AI tool of choice to seed one.")
+			return ui.Empty(
+				"No sessions found across any detected provider.",
+				"Run `chronicle doctor` to check whether the provider roots are reachable, or open a new conversation in your AI tool of choice to seed one.",
+			)
 		}
-		return m.list.View()
+		return ui.Ready(m.list.View())
 	}
-	return ""
+	return ui.Ready("")
 }
+
+// statusLine is the muted row the frame paints between the
+// body and the footer. The session list uses it to report the
+// row count so the reader sees the scale at a glance. The
+// empty string suppresses the row when there is nothing
+// useful to report (loading, error, empty list).
+func (m Model) statusLine() string {
+	if m.status != statusReady {
+		return ""
+	}
+	count := len(m.list.Items())
+	if count == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d %s", count, composition.Pluralize(count, "session", "sessions"))
+}
+
+// bodyDimensions reports the (width, height) the list should
+// size itself to. The list fills the frame's body region, so
+// its height is the screen's full height minus the rows the
+// frame reserves for the footer and the optional status row.
+func (m Model) bodyDimensions() (int, int) {
+	width := m.width
+	height := m.height - footerHeight
+	if m.statusLine() != "" {
+		height--
+	}
+	if height < 1 {
+		height = 1
+	}
+	return width, height
+}
+
+// footerHeight is the row count the frame reserves for its
+// help footer. The frame renders the row on a single line by
+// design — overflow flows into the full-help overlay rather
+// than wrapping — so the screen reserves one row.
+const footerHeight = 1
 
 // openRequest wraps a SessionListing in an OpenRequestMsg and
 // returns the result as a tea.Cmd. The list's Update returns the

@@ -20,12 +20,10 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/keys"
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/theme"
@@ -33,6 +31,20 @@ import (
 	"github.com/danieljbfz/chronicle/contracts"
 	"github.com/danieljbfz/chronicle/steps"
 )
+
+// footerBindings is the screen-curated set the frame's help
+// row shows at the bottom of the transcript reader. The set
+// is deliberately short — five or six items is the comfort
+// range for a single-line footer — and the full list of
+// bindings lives in the app's help overlay (press ?) for the
+// user who wants to discover everything. Scroll keys (j, k,
+// u, d, g, G) are handled by the bubbles viewport directly;
+// the footer surfaces only the two-direction j/k hint
+// because that is what the new reader needs to know to start.
+var footerBindings = []key.Binding{
+	key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "scroll")),
+	key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+}
 
 // Reader is the small subset of composition.App methods the
 // transcript reader relies on. Defining the interface here lets
@@ -82,7 +94,7 @@ type Model struct {
 	provider  string
 
 	viewport viewport.Model
-	help     help.Model
+	frame    ui.Frame
 	spinner  ui.Spinner
 	status   status
 	err      error
@@ -106,13 +118,6 @@ func New(src Reader, k keys.KeyMap, t theme.Theme, glamourStyle string, sessionI
 	vp.SoftWrap = true
 	vp.MouseWheelEnabled = true
 
-	// The help component is the same one the bubbles list uses
-	// internally for the session list's help row, so the
-	// rendered line reads in the same visual style across every
-	// screen. SetWidth on each WindowSizeMsg keeps its built-in
-	// truncation honest at narrow terminals.
-	h := help.New()
-
 	return Model{
 		src:          src,
 		keys:         k,
@@ -122,7 +127,7 @@ func New(src Reader, k keys.KeyMap, t theme.Theme, glamourStyle string, sessionI
 		projectID:    projectID,
 		provider:     provider,
 		viewport:     vp,
-		help:         h,
+		frame:        ui.NewFrame(t, k),
 		spinner:      ui.NewSpinner(t, "Loading transcript…"),
 		status:       statusLoading,
 	}
@@ -208,8 +213,13 @@ type errMsg struct {
 }
 
 const (
-	headerLines         = 2
-	footerLines         = 2
+	// headerLines is the row count the transcript's own
+	// breadcrumb and metadata header occupies.
+	headerLines = 2
+	// footerHeight is the row count the frame reserves for
+	// the help footer. The frame renders the row on a single
+	// line by design.
+	footerHeight        = 1
 	defaultRenderWidth  = 100
 	minimumWrapWidth    = 40
 	viewportSidePadding = 2
@@ -225,8 +235,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.help.SetWidth(msg.Width)
-		viewportHeight := msg.Height - headerLines - footerLines
+		viewportHeight := msg.Height - headerLines - footerHeight
 		if viewportHeight < 1 {
 			viewportHeight = 1
 		}
@@ -283,25 +292,29 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-// View renders the screen content. The header carries the
-// breadcrumb plus the session metadata, the body is either the
-// loading or error sentence or the viewport, and the footer
-// shows the short help line. The body is placed inside a
-// fixed-height region so a short loading or error message does
-// not pull the footer up beside it — the footer stays anchored
-// at the bottom of the screen no matter how short the body is.
+// View renders the screen content. The transcript draws its
+// own two-row breadcrumb-and-subtitle header above the frame
+// because the overlay covers the app's tab strip, then hands
+// the body and footer to the shared frame so the loading,
+// error, and ready states read the same as every other
+// screen.
 func (m Model) View() string {
-	return m.renderHeader() + "\n" + m.placedBody() + "\n" + m.renderFooter()
+	frameHeight := m.height - headerLines
+	if frameHeight < 1 {
+		frameHeight = 1
+	}
+	return m.renderHeader() + "\n" + m.frame.Render(m.width, frameHeight, "", footerBindings, m.state())
 }
 
 // renderHeader paints the transcript overlay's two-row top
-// chrome: a breadcrumb that places the user in the navigation,
-// and a metadata strip that names the session beneath it. The
-// breadcrumb uses the project's hierarchy separator (the
-// chevron) to read as parent → child, distinguishing it from
-// the bullet the tab strip uses to separate peer sections.
-// Together the two rows replace the chrome the tab strip
-// would draw if the transcript were not an overlay.
+// chrome: a breadcrumb that places the user in the
+// navigation, and a metadata strip that names the session
+// beneath it. The breadcrumb uses the project's hierarchy
+// separator (the chevron) to read as parent → child,
+// distinguishing it from the bullet the tab strip uses to
+// separate peer sections. Together the two rows replace the
+// chrome the tab strip would draw if the transcript were not
+// an overlay.
 func (m Model) renderHeader() string {
 	breadcrumb := m.theme.Title.Render("chronicle") +
 		m.theme.Muted.Render(theme.HierarchySeparator) +
@@ -313,10 +326,10 @@ func (m Model) renderHeader() string {
 }
 
 // renderSubtitle returns the one-line metadata strip that
-// names the session inside the transcript overlay. The fields
-// are joined by the project's peer separator (the bullet) so
-// the line reads the same as every other peer-list strip the
-// TUI shows.
+// names the session inside the transcript overlay. The
+// fields are joined by the project's peer separator (the
+// bullet) so the line reads the same as every other
+// peer-list strip the TUI shows.
 func (m Model) renderSubtitle() string {
 	parts := []string{m.provider}
 	if m.status == statusReady {
@@ -331,44 +344,21 @@ func (m Model) renderSubtitle() string {
 	return strings.Join(parts, m.theme.Muted.Render(theme.Separator))
 }
 
-func (m Model) renderBody() string {
+// state maps the screen's status flag to the frame's State.
+// Loading hands the spinner to the frame; error hands
+// full-sentence prose; ready hands the viewport's own
+// rendered View. The shape of each branch matches the rules
+// the frame imposes on every screen.
+func (m Model) state() ui.State {
 	switch m.status {
 	case statusLoading:
-		return m.spinner.View()
+		return ui.Loading(m.spinner)
 	case statusError:
-		return m.theme.Error.Render("Could not load transcript: "+m.err.Error()) +
-			"\n" +
-			m.theme.Muted.Render("Press Esc to return to the session list.")
+		return ui.Error(m.err, "Press Esc to return to the session list.")
 	case statusReady:
-		return m.viewport.View()
+		return ui.Ready(m.viewport.View())
 	}
-	return ""
-}
-
-// placedBody renders the body inside a fixed-height region so a
-// short status (the one-line spinner row, the two-line error)
-// does not pull the footer up beside it. The viewport already
-// sizes itself to the body's height through SetHeight, so the
-// ready state is a no-op pass-through.
-func (m Model) placedBody() string {
-	body := m.renderBody()
-	height := m.height - headerLines - footerLines
-	if height < 1 {
-		return body
-	}
-	return lipgloss.PlaceVertical(height, lipgloss.Top, body)
-}
-
-// renderFooter paints the help line at the bottom of the
-// screen. The shape matches what the bubbles list renders
-// inside the session list — same component, same defaults,
-// same styling — so the help row reads identically across
-// every screen. ShortHelpView truncates its own output when
-// the line would not fit the configured width.
-func (m Model) renderFooter() string {
-	bindings := append([]key.Binding{}, m.keys.ViewportShortHelp()...)
-	bindings = append(bindings, m.keys.ShortHelp()...)
-	return m.help.ShortHelpView(bindings)
+	return ui.Ready("")
 }
 
 func back() tea.Cmd {

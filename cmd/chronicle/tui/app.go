@@ -9,6 +9,7 @@ import (
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/screens/stats"
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/screens/transcript"
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/theme"
+	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/ui"
 	"github.com/danieljbfz/chronicle/composition"
 )
 
@@ -47,6 +48,13 @@ type appModel struct {
 
 	transcript     transcript.Model
 	showTranscript bool
+
+	// showHelp is true while the help overlay is open. The
+	// overlay is the canonical place chronicle lists every
+	// binding the active context offers, so the user does not
+	// have to memorise the short footer or its truncations.
+	showHelp bool
+	frame    ui.Frame
 }
 
 func newAppModel(app *composition.App, k keys.KeyMap, t theme.Theme, version, glamourStyle string) appModel {
@@ -70,6 +78,7 @@ func newAppModel(app *composition.App, k keys.KeyMap, t theme.Theme, version, gl
 		screens:      screens,
 		initialised:  map[section]bool{},
 		active:       sectionSessions,
+		frame:        ui.NewFrame(t, k),
 	}
 }
 
@@ -130,23 +139,67 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case tea.KeyPressMsg:
-		// Quit is global, guarded against the session list's
-		// filter mode so a user typing "quit" into the filter
-		// does not exit the program.
+		// The help overlay is modal. While it is open, only
+		// the keys that close it (Esc, ?, q) reach the app.
+		if m.showHelp {
+			switch {
+			case key.Matches(msg, m.keys.Help), key.Matches(msg, m.keys.Back):
+				m.showHelp = false
+				return m, nil
+			case key.Matches(msg, m.keys.Quit):
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		// Quit (q, ctrl+c) is global, guarded against the
+		// session list's filter mode so a user typing "quit"
+		// into the filter does not exit the program.
 		if key.Matches(msg, m.keys.Quit) && !m.isFiltering() {
 			return m, tea.Quit
 		}
+
+		// Help (?) is global and never goes to a screen.
+		if key.Matches(msg, m.keys.Help) && !m.isFiltering() {
+			m.showHelp = true
+			return m, nil
+		}
+
+		// Esc is the back-then-quit ladder. It closes the
+		// transcript overlay when one is open, lets the
+		// session list's filter clear it when one is
+		// capturing input, and otherwise quits the program.
+		// The shape matches the convention every serious TUI
+		// follows (k9s, lazygit, vim), so the user does not
+		// have to learn a chronicle-specific exit.
+		if key.Matches(msg, m.keys.Back) {
+			switch {
+			case m.showTranscript:
+				m.showTranscript = false
+				return m, nil
+			case m.isFiltering():
+				// Let the screen handle the cancellation.
+				return m.forward(msg)
+			default:
+				return m, tea.Quit
+			}
+		}
+
+		// Refresh (r) is global. The app dispatches it to
+		// whichever screen exposes a Refresh method, so every
+		// section that can refresh does so through one
+		// uniform path.
+		if key.Matches(msg, m.keys.Refresh) && !m.showTranscript && !m.isFiltering() {
+			return m.refreshActive()
+		}
+
 		// Section navigation is a top-level action. It is
-		// suppressed while the transcript overlay is open, where
-		// Esc returns to the tabbed view first, and while the
-		// session filter is capturing input.
+		// suppressed while the transcript overlay is open
+		// (Esc returns to the tabbed view first) and while
+		// the session filter is capturing input.
 		if !m.showTranscript && !m.isFiltering() {
 			if next, ok := m.sectionForKeypress(msg); ok {
 				m.active = next
-				// Initialise the section on its first
-				// activation. The command is nil for a
-				// section the user has visited before, so a
-				// repeat switch is free.
 				return m, m.initSection(next)
 			}
 		}
@@ -174,6 +227,27 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m.forward(msg)
+}
+
+// refreshActive dispatches the global refresh key to whichever
+// section is active. Each refreshable screen exposes a Refresh
+// method that returns its reloaded model and the command that
+// starts the fetch. Sections that do not refresh (none today)
+// fall through with no command.
+func (m appModel) refreshActive() (tea.Model, tea.Cmd) {
+	switch s := m.screens[m.active].(type) {
+	case sessionsScreen:
+		var cmd tea.Cmd
+		s.model, cmd = s.model.Refresh()
+		m.screens[m.active] = s
+		return m, cmd
+	case statsScreen:
+		var cmd tea.Cmd
+		s.model, cmd = s.model.Refresh()
+		m.screens[m.active] = s
+		return m, cmd
+	}
+	return m, nil
 }
 
 // forward sends the message to whichever view is active — the
@@ -240,9 +314,12 @@ func (m appModel) cycle(delta int) section {
 
 func (m appModel) View() tea.View {
 	var content string
-	if m.showTranscript {
+	switch {
+	case m.showHelp:
+		content = m.frame.FullHelp(m.width, m.height, m.keys.FullHelp())
+	case m.showTranscript:
 		content = m.transcript.View()
-	} else {
+	default:
 		content = renderChrome(m.width, m.order, m.meta, m.active, m.theme) +
 			"\n" + m.screens[m.active].View()
 	}

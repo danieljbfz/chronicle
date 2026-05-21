@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -32,11 +31,17 @@ import (
 	"github.com/danieljbfz/chronicle/composition"
 )
 
-// extraHelpBindings lists the bindings this screen advertises
-// beyond the viewport-shared set and the global short help.
-// Refresh is the only screen-specific action: the rest of the
-// scrolling hints come from KeyMap.ViewportShortHelp.
-var extraHelpBindings = []key.Binding{
+// footerBindings is the short, screen-curated set the help
+// row at the bottom of the stats screen advertises. The set
+// is deliberately small — five or six items is the comfort
+// range for a single-line footer — and the full list of
+// bindings lives in the app's help overlay (press ?) for the
+// user who wants to discover everything. Scrolling hints (j,
+// k, u, d, g, G) are handled by the bubbles viewport
+// directly; surfacing them all in the footer would push out
+// the screen-specific actions the user came for.
+var footerBindings = []key.Binding{
+	key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "scroll")),
 	key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 }
 
@@ -67,9 +72,9 @@ type Model struct {
 	src   Source
 	keys  keys.KeyMap
 	theme theme.Theme
+	frame ui.Frame
 
 	viewport viewport.Model
-	help     help.Model
 	spinner  ui.Spinner
 	status   status
 	err      error
@@ -91,19 +96,12 @@ func New(src Source, k keys.KeyMap, t theme.Theme) Model {
 	vp := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 	vp.MouseWheelEnabled = true
 
-	// The help component is the same one the bubbles list uses
-	// internally for the session list's help row, so the
-	// rendered line reads in the same visual style across every
-	// screen. SetWidth on each WindowSizeMsg keeps its built-in
-	// truncation honest at narrow terminals.
-	h := help.New()
-
 	return Model{
 		src:      src,
 		keys:     k,
 		theme:    t,
+		frame:    ui.NewFrame(t, k),
 		viewport: vp,
-		help:     h,
 		spinner:  ui.NewSpinner(t, "Computing the summary across every provider…"),
 		status:   statusLoading,
 	}
@@ -150,7 +148,11 @@ type errMsg struct {
 }
 
 const (
-	footerLines        = 2
+	// footerHeight is the row count the frame reserves for its
+	// help footer. The frame renders the row on a single line
+	// by design — overflow flows into the full-help overlay
+	// rather than wrapping — so the screen reserves one row.
+	footerHeight       = 1
 	defaultRenderWidth = 100
 	minContentWidth    = 40
 )
@@ -165,8 +167,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.help.SetWidth(msg.Width)
-		viewportHeight := msg.Height - footerLines
+		viewportHeight := msg.Height - footerHeight
 		if viewportHeight < 1 {
 			viewportHeight = 1
 		}
@@ -195,10 +196,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Bottom):
 			m.viewport.GotoBottom()
 			return m, nil
-		case key.Matches(msg, m.keys.Refresh):
-			m.status = statusLoading
-			m.spinner = ui.NewSpinner(m.theme, "Refreshing the summary…")
-			return m, tea.Batch(m.fetch(m.contentWidth()), m.spinner.TickCmd())
 		}
 	}
 
@@ -230,56 +227,39 @@ func (m Model) contentWidth() int {
 	return m.width
 }
 
-// View renders the screen's content below the app's tab strip.
-// The body is the loading or error sentence or the viewport,
-// and the footer is the short help line. The body is placed
-// inside a fixed-height region so a short loading or error
-// message does not pull the footer up beside it — the footer
-// stays anchored at the bottom of the screen no matter how
-// short the body is.
+// View renders the screen through the shared frame so the
+// stats summary draws the same loading, empty, error, footer,
+// and status chrome every other screen draws. The screen owns
+// only the body content; the frame owns the rest.
 func (m Model) View() string {
-	return m.placedBody() + "\n" + m.renderFooter()
+	return m.frame.Render(m.width, m.height, "", footerBindings, m.state())
 }
 
-// placedBody renders the body inside a fixed-height region so a
-// short status (the one-line spinner row, the two-line error)
-// does not pull the footer up beside it. The viewport already
-// sizes itself to the body's height through SetHeight, so the
-// ready state passes through unchanged.
-func (m Model) placedBody() string {
-	body := m.renderBody()
-	height := m.height - footerLines
-	if height < 1 {
-		return body
-	}
-	return lipgloss.PlaceVertical(height, lipgloss.Top, body)
-}
-
-func (m Model) renderBody() string {
+// state maps the screen's status flag to the frame's State.
+// Loading hands the spinner to the frame; error hands
+// full-sentence prose; ready hands the viewport's own
+// rendered View. The shape of each branch matches the rules
+// the frame imposes on every screen.
+func (m Model) state() ui.State {
 	switch m.status {
 	case statusLoading:
-		return m.spinner.View()
+		return ui.Loading(m.spinner)
 	case statusError:
-		return m.theme.Error.Render("Could not compute stats: "+m.err.Error()) +
-			"\n\n" +
-			m.theme.Muted.Render("Run `chronicle doctor` for the per-provider diagnostic, or press r to retry.")
+		return ui.Error(m.err, "Run `chronicle doctor` for the per-provider diagnostic, or press r to retry.")
 	case statusReady:
-		return m.viewport.View()
+		return ui.Ready(m.viewport.View())
 	}
-	return ""
+	return ui.Ready("")
 }
 
-// renderFooter paints the help line at the bottom of the
-// screen. The shape matches what the bubbles list renders
-// inside the session list — same component, same defaults,
-// same styling — so the help row reads identically across
-// every screen. ShortHelpView truncates its own output when
-// the line would not fit the configured width.
-func (m Model) renderFooter() string {
-	bindings := append([]key.Binding{}, m.keys.ViewportShortHelp()...)
-	bindings = append(bindings, extraHelpBindings...)
-	bindings = append(bindings, m.keys.ShortHelp()...)
-	return m.help.ShortHelpView(bindings)
+// Refresh returns the model to its loading state and kicks
+// off a fresh fetch. The app calls this on the global refresh
+// key (r) so every section refreshes through one uniform
+// path.
+func (m Model) Refresh() (Model, tea.Cmd) {
+	m.status = statusLoading
+	m.spinner = ui.NewSpinner(m.theme, "Refreshing the summary…")
+	return m, tea.Batch(m.fetch(m.contentWidth()), m.spinner.TickCmd())
 }
 
 // renderStats lays the summary out as a string the viewport
