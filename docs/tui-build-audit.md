@@ -270,7 +270,50 @@ The handoff's "Open questions" table is resolved under
 them, and each one moves to "Decisions" with a dated entry once
 it is answered.
 
-*(none currently open)*
+### Top-level navigation between screens (open, blocks phase 3)
+
+Phase 3 (stats) is the first screen that is not reached by
+drilling into a session, and phases 4 to 6 (doctor, trash,
+memory) are the same. The app model in `app.go` today only
+knows two screens — the session list and the transcript
+drill-down it reaches through `OpenRequestMsg` on Enter and
+leaves through `BackMsg` on Esc. There is no way yet to move
+between top-level sections, so the navigation model has to be
+decided before stats can be reachable. The decision binds
+every remaining phase.
+
+The candidates surfaced to the user:
+
+1. **Number-key tabs plus a visible section strip.** A
+   persistent strip ("[1] sessions  [2] stats  [3] doctor
+   [4] trash  [5] memory") with the active section
+   highlighted, number keys to jump directly, Tab and
+   Shift-Tab to cycle. The transcript stays a drill-down from
+   the session list. Familiar from gh-dash and browser tabs,
+   keyboard-first, discoverable. This is the recommendation.
+2. **Command palette.** Press `:` to open an input, type a
+   section name, Enter to jump. Powerful but the section set
+   is hidden until the palette opens, so it is less
+   discoverable for a first-time user.
+3. **Tab and Shift-Tab cycling only.** Simplest, least chrome,
+   but no direct jump and no always-visible map of the
+   sections.
+
+Two internal choices ride along with whichever model wins, and
+the recommendation is to take both now that a third screen
+(plus three more) exists:
+
+- Introduce a `Screen` interface (`Init`/`Update`/`View`) so
+  `app.go` becomes a router over a section-keyed set of
+  screens rather than one direct field and one type-switch
+  branch per screen. Session 1's audit deferred this until
+  "more than two screens make the type-switch ungainly", and
+  phase 3 is that moment.
+- Keep the transcript reader a drill-down from the session
+  list rather than a top-level section.
+
+The user is choosing the navigation model now. Once chosen, it
+moves to "Decisions" with a dated entry and phase 3 proceeds.
 
 ## Session log
 
