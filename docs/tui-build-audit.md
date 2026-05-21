@@ -307,6 +307,79 @@ sections register a tab, so the strip grows as phases 4 to 6
 land rather than showing placeholder tabs for screens that do
 not exist yet.
 
+### 2026-05-21 — Screen architecture: ui.Frame is the one render rule
+
+After two rounds of polish-on-top-of-polish the TUI still had
+three screens with three different rendering rules, three
+different loading states, and a help row that hid bindings
+behind ellipsis truncation. The user's feedback was that the
+fix-the-symptom pattern was producing drift, and the right
+shape was to redesign the screen architecture so the
+inconsistencies became structurally impossible. This is that
+redesign.
+
+`cmd/chronicle/tui/ui/frame.go` holds the one `Frame`
+component every screen renders through. The frame is a
+renderer (not a model): it takes the screen's width and
+height, a state value (one of `ui.Loading`, `ui.Empty`,
+`ui.Error`, `ui.Ready`), an optional muted status row, and
+the screen-curated footer bindings, and returns the rendered
+string. The body always sits at the top with blank rows
+padded down so the footer stays anchored at the bottom of
+the frame regardless of how short the body content is. Three
+screens, one drawing function — visual drift is now
+structurally impossible.
+
+Research from k9s, lazygit, and OpenCode informed the footer
+design. The convention every serious TUI converges on is a
+short, single-line, context-sensitive footer with the
+bindings most useful on the current view, plus a `?` overlay
+listing every binding grouped by purpose. Chronicle now
+follows the pattern exactly. The footer shows two or three
+screen-curated bindings on a single line that never wraps
+and never truncates. Pressing `?` opens a full-help modal
+through the bubbles help component's `FullHelpView`. The
+single-line invariant keeps the body height stable across
+resizes — a wrap-to-second-line footer that I considered
+first would have shifted the body when the binding count
+crossed a threshold, which reads as a layout bug.
+
+Global keys move to the app model so every screen treats
+them identically:
+
+- **Esc** is the back-then-quit ladder every serious TUI
+  follows. It closes the transcript overlay when one is
+  open, lets the session list's filter clear itself when
+  capturing input, and otherwise quits the program. Users
+  do not have to learn what Esc means per screen.
+- **`?`** opens the full-help modal. While the overlay is
+  open it is modal: only Esc, `?`, and q reach the app, so
+  mashing a number key behind the overlay does not switch
+  sections.
+- **r** is global refresh. Each refreshable screen exposes
+  a `Refresh()` method; the app dispatches the key to the
+  active section. Every refresh flows through one path.
+- **q** and **ctrl+c** quit, guarded against the session
+  list's filter mode so typing the letter does not exit.
+
+The sessions screen drops the bubbles list's
+`SetShowHelp(true)` and `SetShowStatusBar(true)`, because
+the frame draws both. The session count moves to the
+frame's status row above the footer; every screen that
+wants a status row gets the same shape. The list naturally
+fills the frame's body region (its `View()` already pads to
+the height it was given), so the footer-hugging-content
+issue disappears without a special case.
+
+**Rule for every later screen:** screens own content, not
+chrome. A screen that needs to render a body composes
+through the frame; it does not redraw the help row, the
+status row, or the loading indicator. If a screen needs a
+piece of presentation the frame does not offer, the right
+move is to extend the frame (so every screen benefits), not
+to hand-roll an inline equivalent. Drift between screens is
+the bug that frame design exists to prevent.
+
 ### 2026-05-21 — Phase 3 polish pass: consistent chrome, lazy loads, footer anchoring
 
 After phase 3 the user inspected the running TUI on real data
