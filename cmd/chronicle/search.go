@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/danieljbfz/chronicle/composition"
-	"github.com/danieljbfz/chronicle/contracts"
 )
 
 // newSearchCmd builds the `chronicle search` subcommand. The
@@ -172,7 +171,3 @@ func firstLine(s string) string {
 	}
 	return ""
 }
-
-// silence the unused-import warning when this file is built
-// in isolation.
-var _ = contracts.RoleUser
