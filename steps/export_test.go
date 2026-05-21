@@ -35,15 +35,28 @@ func TestMarkdown_includesTitleAndMessages(t *testing.T) {
 	}
 }
 
-// TestMarkdown_emptySessionHasFallbackTitle proves the renderer copes
-// with a session that has no real content. An abandoned session is
-// still going to flow through here when the user runs an export
-// against its identifier, and the document should not have an empty
-// title at the top.
-func TestMarkdown_emptySessionHasFallbackTitle(t *testing.T) {
+// TestMarkdown_emptySessionRendersNonEmptyTitle proves the renderer
+// copes with a session that has no real content. An abandoned
+// session is still going to flow through here when the user runs
+// an export against its identifier, and the document should not
+// render an empty heading at the top. The exact synthetic title
+// is owned by contracts.ListingTitle and pinned by that package's
+// tests — this test only asserts the renderer surfaces it.
+func TestMarkdown_emptySessionRendersNonEmptyTitle(t *testing.T) {
 	out := Markdown(contracts.Conversation{})
-	if !strings.Contains(out, "(empty session)") {
-		t.Error("empty conversation should render fallback title")
+	const headingPrefix = "# "
+	start := strings.Index(out, headingPrefix)
+	if start < 0 {
+		t.Fatal("Markdown output should begin with a top-level heading")
+	}
+	rest := out[start+len(headingPrefix):]
+	end := strings.Index(rest, "\n")
+	if end < 0 {
+		t.Fatal("Markdown heading should end with a newline")
+	}
+	title := strings.TrimSpace(rest[:end])
+	if title == "" {
+		t.Error("Markdown heading for an empty conversation should not be blank")
 	}
 }
 

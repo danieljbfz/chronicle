@@ -39,15 +39,18 @@ func Markdown(c contracts.Conversation) string {
 // growing buffer. Returning strings from each helper and gluing
 // them together afterwards would do the same thing with more
 // allocations and more code.
+//
+// The heading reads ListingTitle, which runs the same identity
+// cascade the session-list surfaces rely on (Title, then first
+// user prompt, then slash-command name, then first assistant
+// reply, then first tool name, then a synthetic last-resort
+// identity built from the timestamp or the session id). A
+// session that began with a slash command or a tool result no
+// longer renders as "# (empty session)" — the cascade picks up
+// the user's actual first action and surfaces it as the
+// document's title.
 func writeHeader(builder *strings.Builder, c contracts.Conversation) {
-	title := c.Title
-	if title == "" {
-		title = c.FirstUserPrompt()
-	}
-	if title == "" {
-		title = "(empty session)"
-	}
-	fmt.Fprintf(builder, "# %s\n\n", title)
+	fmt.Fprintf(builder, "# %s\n\n", c.ListingTitle())
 	fmt.Fprintf(builder, "> Session `%s`  ·  Provider `%s`  ·  Started %s\n\n",
 		c.SessionID, c.Source.Adapter, formatTime(c.StartedAt))
 	builder.WriteString("---\n\n")
