@@ -111,7 +111,14 @@ func detectInDir(root fs.FS) (contracts.StorageVersion, error) {
 		Capabilities: contracts.Capabilities{
 			ThreadTree:      known,
 			ToolInvocations: known,
-			ModelMetadata:   false, // Claude's JSONL does not record per-turn model identifiers.
+			// Claude records a model identifier on every
+			// assistant record, and parse.go reports the
+			// most-frequent value as the session-level model.
+			// The capability is gated on a recognized
+			// fingerprint, the same as the two above, so an
+			// unknown storage version makes no claim about
+			// what its records contain.
+			ModelMetadata: known,
 		},
 	}, nil
 }
