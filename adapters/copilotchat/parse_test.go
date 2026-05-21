@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/danieljbfz/chronicle/contracts"
 )
@@ -158,5 +159,70 @@ func TestParse_missingSelectedModelLeavesModelEmpty(t *testing.T) {
 	conv := parseSnapshot(state, "ws", contracts.StorageVersion{Adapter: "copilot"})
 	if conv.Model != "" {
 		t.Errorf("Conversation.Model = %q, want empty when inputState is missing", conv.Model)
+	}
+}
+
+// TestParse_endedAtComesFromLatestRequest pins the
+// real-shape behaviour current VS Code builds depend on:
+// the snapshot has no lastMessageDate field, and each
+// request inside the requests array carries its own
+// timestamp in Unix milliseconds. The parser walks the
+// requests and reports the latest of those as the
+// conversation's EndedAt, so the session list's "ago"
+// reading reflects when the user actually last interacted
+// rather than the zero value of time.Time (which an
+// earlier version of the parser propagated and the TUI
+// rendered as the days since Go's zero time).
+func TestParse_endedAtComesFromLatestRequest(t *testing.T) {
+	creation := int64(1700000000000)
+	earlier := int64(1700000060000) // creation + 60s
+	latest := int64(1700000120000)  // creation + 120s
+	state := map[string]any{
+		"sessionId":    "s1",
+		"creationDate": float64(creation),
+		// No lastMessageDate. Real VS Code builds omit it.
+		"requests": []any{
+			map[string]any{
+				"requestId": "r1",
+				"timestamp": float64(earlier),
+				"message":   map[string]any{"parts": []any{map[string]any{"kind": "text", "text": "hello"}}},
+			},
+			map[string]any{
+				"requestId": "r2",
+				"timestamp": float64(latest),
+				"message":   map[string]any{"parts": []any{map[string]any{"kind": "text", "text": "world"}}},
+			},
+		},
+	}
+	conv := parseSnapshot(state, "ws", contracts.StorageVersion{Adapter: "copilot"})
+	wantEnded := time.UnixMilli(latest)
+	if !conv.EndedAt.Equal(wantEnded) {
+		t.Errorf("EndedAt = %v, want %v (latest request timestamp)", conv.EndedAt, wantEnded)
+	}
+	wantStarted := time.UnixMilli(creation)
+	if !conv.StartedAt.Equal(wantStarted) {
+		t.Errorf("StartedAt = %v, want %v (creationDate)", conv.StartedAt, wantStarted)
+	}
+}
+
+// TestParse_endedAtFallsBackToCreationDate pins the
+// fallback path for a session that exists on disk but
+// has no requests yet. The snapshot writes creationDate
+// the moment the user opens a new chat panel, so the
+// session shows up in the listing even before the user
+// sends anything; the parser uses creationDate as EndedAt
+// in that case so the listing's "ago" reading reflects
+// when the session was created rather than the zero value.
+func TestParse_endedAtFallsBackToCreationDate(t *testing.T) {
+	creation := int64(1700000000000)
+	state := map[string]any{
+		"sessionId":    "s1",
+		"creationDate": float64(creation),
+		"requests":     []any{},
+	}
+	conv := parseSnapshot(state, "ws", contracts.StorageVersion{Adapter: "copilot"})
+	want := time.UnixMilli(creation)
+	if !conv.EndedAt.Equal(want) {
+		t.Errorf("EndedAt = %v, want %v (creationDate fallback)", conv.EndedAt, want)
 	}
 }

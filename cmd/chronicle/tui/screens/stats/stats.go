@@ -32,13 +32,11 @@ import (
 	"github.com/danieljbfz/chronicle/composition"
 )
 
-// extraHelpBindings lists the bindings this screen advertises in
-// addition to the global ones. Refresh is the screen-specific
-// action; the half-page and top/bottom hints announce that the
-// viewport supports them so the user discovers the keys.
+// extraHelpBindings lists the bindings this screen advertises
+// beyond the viewport-shared set and the global short help.
+// Refresh is the only screen-specific action: the rest of the
+// scrolling hints come from KeyMap.ViewportShortHelp.
 var extraHelpBindings = []key.Binding{
-	key.NewBinding(key.WithKeys("u", "d"), key.WithHelp("u/d", "half page")),
-	key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("g/G", "top/bottom")),
 	key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 }
 
@@ -278,7 +276,8 @@ func (m Model) renderBody() string {
 // every screen. ShortHelpView truncates its own output when
 // the line would not fit the configured width.
 func (m Model) renderFooter() string {
-	bindings := append([]key.Binding{}, extraHelpBindings...)
+	bindings := append([]key.Binding{}, m.keys.ViewportShortHelp()...)
+	bindings = append(bindings, extraHelpBindings...)
 	bindings = append(bindings, m.keys.ShortHelp()...)
 	return m.help.ShortHelpView(bindings)
 }

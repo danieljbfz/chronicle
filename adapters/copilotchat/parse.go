@@ -45,7 +45,6 @@ func readSessionFile(root fs.FS, sessionFile string, project contracts.ProjectID
 func parseSnapshot(state map[string]any, project contracts.ProjectID, source contracts.StorageVersion) contracts.Conversation {
 	id := contracts.SessionID(snapshotString(state, "sessionId"))
 	startedAt := epochMillisToTime(snapshotInt(state, "creationDate"))
-	endedAt := epochMillisToTime(snapshotInt(state, "lastMessageDate"))
 	title := snapshotString(state, "customTitle")
 
 	// VS Code Copilot Chat records the model the user picked
@@ -55,11 +54,23 @@ func parseSnapshot(state map[string]any, project contracts.ProjectID, source con
 	// the by-model breakdown.
 	model := snapshotString(state, "inputState", "selectedModel", "identifier")
 
-	var messages []contracts.Message
+	// Step 1: walk the requests array and turn each entry into
+	// the user-and-assistant message pair that represents one
+	// turn. Along the way, track the latest per-request
+	// timestamp so the session's ended-at reading reflects when
+	// the user last interacted rather than when the file was
+	// first written.
+	var (
+		messages   []contracts.Message
+		latestTurn time.Time
+	)
 	for index, entry := range snapshotSlice(state, "requests") {
 		request, ok := entry.(map[string]any)
 		if !ok {
 			continue
+		}
+		if ts := epochMillisToTime(snapshotInt(request, "timestamp")); !ts.IsZero() && ts.After(latestTurn) {
+			latestTurn = ts
 		}
 		userMessage, assistantMessage := parseRequestPair(request, index)
 		if userMessage != nil {
@@ -68,6 +79,23 @@ func parseSnapshot(state map[string]any, project contracts.ProjectID, source con
 		if assistantMessage != nil {
 			messages = append(messages, *assistantMessage)
 		}
+	}
+
+	// Step 2: derive the ended-at reading. Current VS Code
+	// builds do not write a top-level lastMessageDate to the
+	// snapshot, so the per-request timestamps are the
+	// authoritative source. The order of preference is the
+	// latest request timestamp, then the legacy
+	// lastMessageDate (some older snapshots wrote it), then
+	// creationDate as a last resort so a session with no
+	// requests still carries a sensible activity reading
+	// rather than the zero value of time.Time.
+	endedAt := latestTurn
+	if endedAt.IsZero() {
+		endedAt = epochMillisToTime(snapshotInt(state, "lastMessageDate"))
+	}
+	if endedAt.IsZero() {
+		endedAt = startedAt
 	}
 
 	return contracts.Conversation{

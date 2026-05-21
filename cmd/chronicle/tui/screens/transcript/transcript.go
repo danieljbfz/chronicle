@@ -34,15 +34,6 @@ import (
 	"github.com/danieljbfz/chronicle/steps"
 )
 
-// extraHelpBindings lists the bindings this screen advertises in
-// addition to the global ones. The viewport handles half-page and
-// top/bottom scrolling internally; we only need to tell the help
-// bar they exist so the user discovers them.
-var extraHelpBindings = []key.Binding{
-	key.NewBinding(key.WithKeys("u", "d"), key.WithHelp("u/d", "half page")),
-	key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("g/G", "top/bottom")),
-}
-
 // Reader is the small subset of composition.App methods the
 // transcript reader relies on. Defining the interface here lets
 // production code pass a *composition.App and tests pass a fake
@@ -217,7 +208,7 @@ type errMsg struct {
 }
 
 const (
-	headerLines         = 3
+	headerLines         = 2
 	footerLines         = 2
 	defaultRenderWidth  = 100
 	minimumWrapWidth    = 40
@@ -303,23 +294,30 @@ func (m Model) View() string {
 	return m.renderHeader() + "\n" + m.placedBody() + "\n" + m.renderFooter()
 }
 
+// renderHeader paints the transcript overlay's two-row top
+// chrome: a breadcrumb that places the user in the navigation,
+// and a metadata strip that names the session beneath it. The
+// breadcrumb uses the project's hierarchy separator (the
+// chevron) to read as parent → child, distinguishing it from
+// the bullet the tab strip uses to separate peer sections.
+// Together the two rows replace the chrome the tab strip
+// would draw if the transcript were not an overlay.
 func (m Model) renderHeader() string {
-	width := m.width
-	if width < 20 {
-		width = 20
-	}
-
-	title := m.theme.Title.Render("chronicle  ·  sessions  ›  transcript")
-	subtitle := m.renderSubtitle(width)
-	divider := m.theme.Muted.Render(strings.Repeat("─", width))
-	return title + "\n" + subtitle + "\n" + divider
+	breadcrumb := m.theme.Title.Render("chronicle") +
+		m.theme.Muted.Render(theme.HierarchySeparator) +
+		m.theme.Subtitle.Render("sessions") +
+		m.theme.Muted.Render(theme.HierarchySeparator) +
+		m.theme.Accent.Render("transcript")
+	subtitle := m.renderSubtitle()
+	return breadcrumb + "\n" + subtitle
 }
 
-// renderSubtitle returns the one-line metadata strip beneath the
-// breadcrumb. It tries to fit "provider · started · session-id"
-// on a single line, truncating the session id from the right if
-// the terminal is too narrow to hold the whole thing.
-func (m Model) renderSubtitle(width int) string {
+// renderSubtitle returns the one-line metadata strip that
+// names the session inside the transcript overlay. The fields
+// are joined by the project's peer separator (the bullet) so
+// the line reads the same as every other peer-list strip the
+// TUI shows.
+func (m Model) renderSubtitle() string {
 	parts := []string{m.provider}
 	if m.status == statusReady {
 		if !m.conv.StartedAt.IsZero() {
@@ -330,9 +328,7 @@ func (m Model) renderSubtitle(width int) string {
 		}
 	}
 	parts = append(parts, string(m.sessionID))
-
-	joined := strings.Join(parts, m.theme.Muted.Render("  ·  "))
-	return joined
+	return strings.Join(parts, m.theme.Muted.Render(theme.Separator))
 }
 
 func (m Model) renderBody() string {
@@ -370,7 +366,7 @@ func (m Model) placedBody() string {
 // every screen. ShortHelpView truncates its own output when
 // the line would not fit the configured width.
 func (m Model) renderFooter() string {
-	bindings := append([]key.Binding{}, extraHelpBindings...)
+	bindings := append([]key.Binding{}, m.keys.ViewportShortHelp()...)
 	bindings = append(bindings, m.keys.ShortHelp()...)
 	return m.help.ShortHelpView(bindings)
 }

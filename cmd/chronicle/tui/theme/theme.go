@@ -10,6 +10,25 @@ package theme
 
 import "charm.land/lipgloss/v2"
 
+// Separator is the bullet character the TUI uses everywhere two
+// peer items sit beside each other on one line — tabs in the
+// section strip, fields in the transcript subtitle, key-and-
+// description pairs in the help row that the bubbles help
+// component renders. Using one canonical separator across every
+// surface keeps the chrome visually coherent. The bullet
+// (U+2022) matches the bubbles help component's default
+// ShortSeparator, so the help row at the bottom of every screen
+// reads the same as the strip at the top.
+const Separator = " • "
+
+// HierarchySeparator is the chevron the TUI uses for parent →
+// child relationships in a breadcrumb. The shape distinguishes
+// hierarchical navigation from the flat peer separation
+// Separator carries, so a reader sees the difference at a
+// glance between "sessions and stats are peer sections" and
+// "sessions is the parent of this transcript".
+const HierarchySeparator = " › "
+
 // Variant names a colour scheme. Today the two variants are the
 // terminal's native palette and a hand-tuned dark scheme. A future
 // "light" variant can land here without changing call sites.

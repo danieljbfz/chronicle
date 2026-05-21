@@ -1,23 +1,30 @@
 // Package ui is the shared component layer the TUI screens
-// compose their chrome from. Every reusable presentation piece
-// chronicle's screens need — the help bar at the bottom, the
-// loading spinner that announces a fetch is in flight, the
-// full-sentence status renderer — lives in this package and is
-// rendered through one canonical implementation per piece.
+// compose their chrome from. Every reusable presentation
+// piece chronicle has built that the upstream bubbles
+// components do not already provide lives here, with one
+// canonical implementation per piece.
 //
-// The point is the visual consistency a polished web product
-// gets from a design-system layer. A page on Linear or Stripe
-// does not hand-render its own button or its own breadcrumb;
-// it composes the design system's button and breadcrumb. Each
-// chronicle screen does the same here: a screen never builds
-// the help line itself, it calls ui.HelpBar with the extra
-// bindings it wants to advertise and the renderer takes care
-// of the rest. The shared part is the renderer. The content
-// the renderer receives is up to each screen.
+// Today the package holds the Spinner that the
+// loading-capable screens use, with its built-in elapsed-time
+// counter that the upstream bubbles spinner does not expose.
+// As later phases land the doctor, trash, and memory screens,
+// the components they would otherwise hand-roll (confirmation
+// modals for the destructive actions, status banners for the
+// async fetches, anything else that turns out to repeat
+// across screens) land here too. Drift between screens is the
+// bug this package exists to prevent.
 //
-// The package depends only on the chronicle TUI's keys and
-// theme packages plus the upstream bubbles components it
-// wraps. It does not depend on the top-level tui package or on
-// any screen package, so every screen can import it without
-// creating a cycle.
+// When a piece of chrome already has a canonical
+// implementation upstream — the help row that the bubbles
+// help component renders, the divider that lipgloss can draw,
+// the table grid that lipgloss/v2/table builds — the screen
+// reaches for that upstream component directly rather than
+// wrapping it here. Wrapping a complete upstream component is
+// the indirection this package does not need.
+//
+// The package depends only on the chronicle TUI's theme
+// package plus the bubbles components it composes. It does
+// not depend on the top-level tui package or on any screen
+// package, so every screen can import it without creating a
+// cycle.
 package ui

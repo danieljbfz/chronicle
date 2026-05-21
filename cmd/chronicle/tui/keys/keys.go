@@ -93,6 +93,21 @@ func (k KeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Up, k.Down, k.Enter, k.Filter, k.Help, k.Quit}
 }
 
+// ViewportShortHelp returns the bindings every viewport-driven
+// screen advertises in its help line beyond the global short
+// help. The bubbles viewport accepts u and d for half-page
+// jumps and g/G for top and bottom, and the same hints apply
+// across the transcript reader, the stats summary, and any
+// later screen built on the same component. Defining the set
+// here keeps the three screens from holding three parallel
+// slices that could drift apart.
+func (k KeyMap) ViewportShortHelp() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("u", "d"), key.WithHelp("u/d", "half page")),
+		key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("g/G", "top/bottom")),
+	}
+}
+
 // FullHelp returns the same bindings grouped into columns, for the
 // expanded view a user reaches by pressing "?". Each inner slice is
 // one column. The grouping is by purpose — navigation in the first

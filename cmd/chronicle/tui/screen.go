@@ -152,8 +152,7 @@ func renderTabStripFull(order []section, meta map[section]sectionMeta, active se
 		}
 		tabs = append(tabs, key+t.Subtitle.Render(m.label))
 	}
-	separator := t.Muted.Render("  ·  ")
-	return t.Title.Render(brand) + "   " + strings.Join(tabs, separator)
+	return t.Title.Render(brand) + t.Muted.Render(theme.Separator) + strings.Join(tabs, t.Muted.Render(theme.Separator))
 }
 
 func renderTabStripCompact(order []section, meta map[section]sectionMeta, active section, t theme.Theme) string {
@@ -168,7 +167,9 @@ func renderTabStripCompact(order []section, meta map[section]sectionMeta, active
 		}
 		markers = append(markers, t.Muted.Render(m.key))
 	}
-	return t.Title.Render(brand) + "  " +
-		t.Accent.Render(activeLabel) + "  " +
-		t.Muted.Render(strings.Join(markers, "·"))
+	return t.Title.Render(brand) +
+		t.Muted.Render(theme.Separator) +
+		t.Accent.Render(activeLabel) +
+		t.Muted.Render(theme.Separator) +
+		t.Muted.Render(strings.Join(markers, " "))
 }
