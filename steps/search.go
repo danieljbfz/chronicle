@@ -75,16 +75,24 @@ func Match(conv contracts.Conversation, query string, opts SearchOptions) []Sear
 	if query == "" {
 		return nil
 	}
+
+	// Step 1: resolve the search parameters from the options.
+	// The context window falls back to the package default, and
+	// the needle is case-folded up front so the per-message
+	// comparison below does not refold the query on every turn.
 	context := opts.SnippetContext
 	if context == 0 {
 		context = defaultSnippetContext
 	}
-
 	needle := query
 	if !opts.CaseSensitive {
 		needle = strings.ToLower(query)
 	}
 
+	// Step 2: walk the readable messages and collect one snippet
+	// per match. Meta, sidechain, and non-text turns are skipped
+	// because the user searches by what was said, not by tool
+	// traffic or the assistant's private reasoning.
 	var snippets []SearchSnippet
 	for _, message := range conv.Messages {
 		if message.IsMeta || message.IsSidechain {

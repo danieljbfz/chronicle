@@ -91,7 +91,16 @@ func (pd PlannedDeletion) ProviderRoot() string {
 // approved them. The result is a flat slice across providers,
 // because the CLI renders the plans as one continuous stream.
 //
-// Pass an empty Categories slice to get every category at once.
+// When categories is empty, PlanCleanup defaults to the
+// abandoned category. Abandoned is the safe zero-configuration
+// cleanup — it needs no threshold and only ever matches
+// sessions that hold no real user input. A non-empty slice
+// selects exactly the categories listed. The stale category
+// takes a duration threshold, so the CLI routes it through
+// PlanCleanupStale rather than this method, and a caller that
+// wants stale cleanup uses that method instead of naming the
+// category here.
+//
 // Pass a non-empty providerName to limit the result to one
 // tool, named by its registered identifier ("claude",
 // "copilot-chat", or "copilot-agent").
