@@ -23,38 +23,57 @@ screens. The CLI keeps its current shape for scripting.
 
 ## Current phase
 
-Phase 4 (doctor) is the next screen to build. Phases 2 and 3
-are done, the codebase-wide review that followed phase 2 is
-done, and the navigation refactor that phase 3 needed (the
-`Screen` interface plus the responsive tab-strip router) is in
-place. The full test suite is green across all sixteen
-packages.
+Phase 3 (stats) is functionally complete and the cross-cutting
+design pass that followed it is largely done. Phase 4 (doctor)
+is the next screen to build, but two open items from the
+phase-3 polish work block the move forward — a scroll-latency
+report from the user and the deeper `composition.Stats`
+performance gap. Both are recorded under "Open questions"
+below. The full test suite is green across every package,
+including the new `frame_test.go` that pins the load-bearing
+properties of `ui.Frame`.
 
-Phase 4 reads `composition.App.Doctor` and renders one card per
-detected provider with the root, the version, the fingerprint,
-the reachability flag, the session count, and any warnings or
-errors. The shape to follow is the stats screen: a `Source`
-interface that is the minimal `composition.App` subset, a
-`Model` with the standard loading/ready/error states, content
-that fits in the viewport or scrolls, and tables or boxed
-cards through `lipgloss/v2`.
+The chrome the user sees today follows one rule: every
+top-level screen renders through `ui.Frame` (loading row
+centred, body padded to fill the body region with a divider
+above the footer, single-line help row that always ends with
+`?` and `q`). The bubbles list's built-in status bar handles
+the row count for the session list, because pulling that row
+up to a frame-level concept produced a height-accounting bug.
+The transcript reader is a drill-down overlay with a
+one-line metadata header followed by the same frame body and
+footer; the breadcrumb chrome that competed with the metadata
+strip is gone.
 
-The screen needs to register one more entry in the section
-order, meta, and registry inside `app.go::newAppModel` — the
-tab strip grows automatically from there.
+Phase 4 (doctor) reads `composition.App.Doctor` and renders
+one card per detected provider with the root, the version,
+the fingerprint, the reachability flag, the session count,
+and any warnings or errors. The shape to follow is the stats
+screen: a `Source` interface that is the minimal
+`composition.App` subset, a `Model` that maps loading/ready/
+error states to `ui.Frame` states, content sized to the
+frame's body region, and a small `footerBindings` slice the
+frame appends `?` and `q` to.
+
+The screen needs one more entry in `app.go::newAppModel`'s
+section order, meta, and registry — the tab strip grows
+automatically from there.
 
 What is left before phase 4 starts:
 
-1. **Research.** Read `composition/doctor.go` for the result
-   shape, read `cmd/chronicle/doctor.go` for how the CLI
-   already renders it, and decide whether one card per
-   provider or one table row per provider reads better in the
-   terminal.
-2. **Plan.** Surface the layout plan to the user — card vs
-   table, warning placement, refresh semantics — before
-   writing code.
-3. **Execute, review, commit** on the same cadence the earlier
-   phases used.
+1. **Resolve the scroll-latency open question** so the
+   transcript reader and the stats viewport scroll
+   responsively. The hypothesis is the spinner's tick
+   command continuing to fire after the load resolves, but
+   it needs a `teatest`-driven investigation rather than a
+   guess. Recorded under "Open questions" below.
+2. **Research the doctor layout.** Read `composition/doctor.go`
+   for the result shape, `cmd/chronicle/doctor.go` for how
+   the CLI already renders it, and decide whether one card
+   per provider or one table row per provider reads better
+   in the terminal. Surface to the user before writing code.
+3. **Execute, review, commit** on the same cadence the
+   earlier phases used.
 
 ## Decisions
 
@@ -500,8 +519,50 @@ The handoff's "Open questions" table is resolved under
 them, and each one moves to "Decisions" with a dated entry once
 it is answered.
 
-*(none currently open — the top-level navigation question is
-resolved under "Decisions" below.)*
+### Scroll latency in viewport-driven screens (open, blocks phase 4)
+
+The user reported that pressing j/k repeatedly on the
+transcript reader feels queued — the viewport advances
+slowly behind the keypresses and "moves by itself for a
+bit" after the user stops pressing. The hypothesis is the
+spinner's tick command continuing to fire after the load
+resolves: each tick goes through the Bubble Tea event loop,
+the screen sees `status != statusLoading` and skips the
+spinner update, but the next tick is already scheduled.
+Over the lifetime of the program the ticks pile up against
+keypresses inside the runtime's message queue.
+
+The fix needs a `teatest`-driven investigation rather than
+a guess. The next session sets up `teatest` (canonical
+import `github.com/charmbracelet/x/exp/teatest/v2`), writes
+a test that sends ten j keys and asserts the viewport
+position advances by ten the same render, and only then
+commits the fix. Without the test the same scroll-feels-
+slow report could come back through a different cause.
+
+### Stats walks every session file (open, latent perf hazard)
+
+`composition.Stats` takes around fifteen seconds on a real
+install (Claude ~5.5 s, Copilot Chat ~9 s, copilot-agent
+sub-second) because each adapter's `ListSessions` parses
+every session file to fill the derived `SessionSummary`
+fields. The contract is documented as "bounded by listing
+cost rather than parse cost", which the implementation has
+been quietly contradicting since the listings were first
+written.
+
+The TUI hides the latency on first launch through lazy
+section initialisation (the stats screen does not load
+until the user activates it), so the immediate user
+experience is acceptable. The fix is bigger — either
+`ListSessions` reads only enough of each file to fill the
+summary fields (file size from `os.Stat`, timestamps from
+the first record, model from a shallow scan), or a
+session-summary cache lives next to the trash manifests.
+The decision touches all three adapters and the
+composition contract semantics, so it is recorded here as
+the next round of composition work rather than slipped
+into a TUI phase.
 
 ## Session log
 
@@ -767,6 +828,69 @@ calendar day.
 - Three commits this phase, each with `make check` green.
   Phase pointer moved to phase 4 (doctor).
 
+### 2026-05-21 — Session 2 continued (phase 3 polish + design pass)
+
+- The user reviewed the running TUI on real data and
+  flagged a cluster of issues: the help row overflowed and
+  clipped to "1-5 s", the loading state showed a
+  motionless message with no progress signal, the session
+  list still used the old plain-text loader while
+  transcript and stats had a spinner, the footer position
+  jittered against the spinner during loading, "ago"
+  readings on Copilot rows rendered as "106751d ago",
+  separators drifted between the tab strip and the
+  bubbles help row, and the chevrons in the transcript
+  breadcrumb rendered awkwardly small. The fixes came in
+  three waves rather than one because the early rounds
+  produced new drift the user had to flag.
+- First wave (commit 3bd5c10) was a focused fix for the
+  Copilot timestamp regression — current VS Code does not
+  write `lastMessageDate`, so the adapter now derives
+  `EndedAt` from the latest request timestamp inside the
+  snapshot — plus unifying separators on `theme.Separator`
+  and `theme.HierarchySeparator` and dropping the
+  duplicated transcript breadcrumb.
+- Second wave (commit 6832f84) was the architecture
+  redesign. Web search confirmed every serious TUI (k9s,
+  lazygit, OpenCode) uses a short context-sensitive
+  footer plus a `?` overlay; chronicle now does the same.
+  `ui.Frame` is the one render rule every screen composes
+  through. Three screens reduced to: a model, a `state()`
+  method, a `footerBindings` slice, and a `Refresh`
+  method. Global keys (Esc, ?, r, q) moved to the app
+  model so every screen treats them identically.
+- The first cut of the frame had real bugs the user
+  surfaced visually: a frame-level status row produced a
+  height-accounting bug that pushed the footer off-screen,
+  the Ready body did not pad to the body region so the
+  footer rode up against short content, the universal `?`
+  anchor was missing from the footer (the screens were
+  curating it out), the spinner glyph rendered awkwardly,
+  and the body and footer ran together with no divider.
+  Third wave (commit 5d6d8e8) addressed all of them:
+  removed the frame status row (the bubbles list's own
+  `SetShowStatusBar(true)` handles the row count), wrap
+  every body state in `lipgloss.Place` for defensive
+  padding, append `?` and `q` to every footer regardless
+  of what the screen passed, switch the spinner from the
+  braille Dot to the ASCII Line glyph, and draw a muted
+  divider above the footer.
+- `cmd/chronicle/tui/ui/frame_test.go` captures the
+  rendered output and asserts the load-bearing
+  properties: dimensions match the budget, the footer
+  carries `?` and `q`, the loading row is centred, the
+  error body quotes the error, the divider sits between
+  body and footer. The new dimension-fit test caught the
+  Ready-body-too-short bug on first run, which is the
+  evidence the tests are now worth their weight. The next
+  visual regression has a test to catch it before it
+  reaches the user's screen.
+- Four commits in this round, each with `make check`
+  green. Two open questions remain (scroll latency,
+  Stats walks every file) and are recorded under "Open
+  questions" above. The audit is the source of truth
+  going forward — the handoff prompt is no longer needed.
+
 ## Bubble Tea v2 API notes
 
 These are the v2 changes that hit during phase 0 and matter for
@@ -794,12 +918,32 @@ upgrade guide is at
 
 ## How to continue if I am gone
 
+This file is the source of truth for the TUI build. The
+handoff prompt at `docs/tui-and-web-handoff.md` is the
+original brief and is still load-bearing for the
+project-wide writing and engineering rules (read its
+"How to write", "How to code", and "How to work" sections),
+but the day-to-day state of the build lives here. Update
+this file every time you change the state — when a phase
+transitions, when a decision is made, when an open
+question surfaces, when a session ends.
+
 If you are a new session reading this for the first time:
 
 1. Read this file end to end.
-2. Read `docs/tui-and-web-handoff.md` end to end.
-3. Read `docs/codebase-tour.md` and `docs/feature-roadmap.md`.
-4. Run `make check`. If anything is red, that is your first task.
-5. Look at the "Current phase" section above. Resume from there.
-6. Add a new dated heading under "Session log" before you do
-   anything that changes the state.
+2. Read `SKILL_PROMPT.md` sections 1, 3, 4 in full — they
+   are the engineering and prose rulebook every commit
+   follows.
+3. Skim `docs/tui-and-web-handoff.md` for the project
+   voice; skim `docs/codebase-tour.md` and
+   `docs/feature-roadmap.md` for the layer-by-layer
+   walkthrough and what is left to build.
+4. Run `make check`. If anything is red, that is your
+   first task.
+5. Look at the "Current phase" section above. Resume from
+   there. Check "Open questions" — anything listed there
+   is blocking forward motion and is the right next
+   thing.
+6. Add a new dated heading under "Session log" before you
+   do anything that changes the state. The audit is the
+   primer the session after yours reads first.
