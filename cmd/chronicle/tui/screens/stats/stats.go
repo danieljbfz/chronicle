@@ -148,11 +148,11 @@ type errMsg struct {
 }
 
 const (
-	// footerHeight is the row count the frame reserves for its
-	// help footer. The frame renders the row on a single line
-	// by design — overflow flows into the full-help overlay
-	// rather than wrapping — so the screen reserves one row.
-	footerHeight       = 1
+	// footerHeight is the row count the frame reserves for
+	// its help footer plus the divider above it. One row for
+	// the help line, one row for the divider that separates
+	// the body region from the chrome below it.
+	footerHeight       = 2
 	defaultRenderWidth = 100
 	minContentWidth    = 40
 )
@@ -232,7 +232,7 @@ func (m Model) contentWidth() int {
 // and status chrome every other screen draws. The screen owns
 // only the body content; the frame owns the rest.
 func (m Model) View() string {
-	return m.frame.Render(m.width, m.height, "", footerBindings, m.state())
+	return m.frame.Render(m.width, m.height, footerBindings, m.state())
 }
 
 // state maps the screen's status flag to the frame's State.

@@ -106,7 +106,15 @@ func New(src Lister, k keys.KeyMap, t theme.Theme) Model {
 
 	l := list.New(nil, newDelegate(t, home), 0, 0)
 	l.SetShowTitle(false)
-	l.SetShowStatusBar(false)
+	// The bubbles list's built-in status bar handles the
+	// "N sessions" line below the rows. Its layout already
+	// accounts for the row in the height math, so the list
+	// view and the frame's footer stack cleanly without the
+	// height-accounting bug an external status row caused.
+	l.SetShowStatusBar(true)
+	l.SetStatusBarItemName("session", "sessions")
+	// The frame draws the help footer for every screen, so
+	// the list's own help row is turned off.
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(true)
 
@@ -240,11 +248,15 @@ func (m Model) IsFiltering() bool {
 }
 
 // View renders the screen through the shared frame so the
-// session list draws the same loading, empty, error, footer,
-// and status chrome every other screen draws. The screen owns
-// only the body content; the frame owns the rest.
+// session list draws the same loading, empty, error, and
+// footer chrome every other screen draws. The "N sessions"
+// status line lives inside the bubbles list itself rather
+// than as a frame-level row, because the list's layout
+// already accounts for it in its height math; pulling the
+// row up to the frame produced a height-accounting bug
+// where the rendered output exceeded the screen.
 func (m Model) View() string {
-	return m.frame.Render(m.width, m.height, m.statusLine(), extraHelpBindings, m.state())
+	return m.frame.Render(m.width, m.height, extraHelpBindings, m.state())
 }
 
 // state maps the screen's status flag to the frame's State.
@@ -270,32 +282,15 @@ func (m Model) state() ui.State {
 	return ui.Ready("")
 }
 
-// statusLine is the muted row the frame paints between the
-// body and the footer. The session list uses it to report the
-// row count so the reader sees the scale at a glance. The
-// empty string suppresses the row when there is nothing
-// useful to report (loading, error, empty list).
-func (m Model) statusLine() string {
-	if m.status != statusReady {
-		return ""
-	}
-	count := len(m.list.Items())
-	if count == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d %s", count, composition.Pluralize(count, "session", "sessions"))
-}
-
-// bodyDimensions reports the (width, height) the list should
-// size itself to. The list fills the frame's body region, so
-// its height is the screen's full height minus the rows the
-// frame reserves for the footer and the optional status row.
+// bodyDimensions reports the (width, height) the list
+// should size itself to. The list fills the frame's body
+// region, so its height is the screen's full height minus
+// the rows the frame reserves for the footer. The list's
+// own status bar lives inside the list's height budget, so
+// no extra subtraction is needed for it here.
 func (m Model) bodyDimensions() (int, int) {
 	width := m.width
 	height := m.height - footerHeight
-	if m.statusLine() != "" {
-		height--
-	}
 	if height < 1 {
 		height = 1
 	}
@@ -303,10 +298,11 @@ func (m Model) bodyDimensions() (int, int) {
 }
 
 // footerHeight is the row count the frame reserves for its
-// help footer. The frame renders the row on a single line by
-// design — overflow flows into the full-help overlay rather
-// than wrapping — so the screen reserves one row.
-const footerHeight = 1
+// help footer and the divider above it. The frame renders
+// the help row on a single line (overflow flows into the
+// full-help overlay rather than wrapping) plus one row for
+// the muted divider that separates the body from the help.
+const footerHeight = 2
 
 // openRequest wraps a SessionListing in an OpenRequestMsg and
 // returns the result as a tea.Cmd. The list's Update returns the

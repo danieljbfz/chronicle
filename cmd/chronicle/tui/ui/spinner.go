@@ -38,9 +38,18 @@ type Spinner struct {
 // resets from the moment NewSpinner returns, so the screen
 // constructs its spinner at the same moment it enters the
 // loading state.
+//
+// The glyph is the classic Line spinner (|, /, -, \) rather
+// than the braille Dot pattern the bubbles default uses. Some
+// terminal fonts render braille characters at a smaller
+// pixel height than ASCII, which makes the Dot glyph look
+// detached from the message beside it. The Line glyph is the
+// same character cell shape every monospace font draws, so
+// the spinner and the message stay visually aligned across
+// every terminal chronicle runs in.
 func NewSpinner(t theme.Theme, message string) Spinner {
 	s := spinner.New()
-	s.Spinner = spinner.Dot
+	s.Spinner = spinner.Line
 	s.Style = t.Muted
 	return Spinner{
 		inner:   s,

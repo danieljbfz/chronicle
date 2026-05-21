@@ -32,15 +32,14 @@ import (
 	"github.com/danieljbfz/chronicle/steps"
 )
 
-// footerBindings is the screen-curated set the frame's help
-// row shows at the bottom of the transcript reader. The set
-// is deliberately short — five or six items is the comfort
-// range for a single-line footer — and the full list of
-// bindings lives in the app's help overlay (press ?) for the
-// user who wants to discover everything. Scroll keys (j, k,
-// u, d, g, G) are handled by the bubbles viewport directly;
-// the footer surfaces only the two-direction j/k hint
-// because that is what the new reader needs to know to start.
+// footerBindings is the screen-curated set the frame's
+// help row shows at the bottom of the transcript reader.
+// The set is deliberately short because the frame appends
+// the universal `?` and `q` anchors automatically; the
+// screen only needs to surface its own bindings here.
+// Scroll keys are handled by the bubbles viewport
+// directly; the footer surfaces only the two-direction
+// j/k hint as a starting point for the new reader.
 var footerBindings = []key.Binding{
 	key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "scroll")),
 	key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
@@ -214,12 +213,11 @@ type errMsg struct {
 
 const (
 	// headerLines is the row count the transcript's own
-	// breadcrumb and metadata header occupies.
+	// metadata header plus the divider beneath it occupies.
 	headerLines = 2
 	// footerHeight is the row count the frame reserves for
-	// the help footer. The frame renders the row on a single
-	// line by design.
-	footerHeight        = 1
+	// the help footer plus the divider above it.
+	footerHeight        = 2
 	defaultRenderWidth  = 100
 	minimumWrapWidth    = 40
 	viewportSidePadding = 2
@@ -292,9 +290,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-// View renders the screen content. The transcript draws its
-// own two-row breadcrumb-and-subtitle header above the frame
-// because the overlay covers the app's tab strip, then hands
+// View renders the screen content. The transcript draws a
+// one-line metadata header naming the session, then hands
 // the body and footer to the shared frame so the loading,
 // error, and ready states read the same as every other
 // screen.
@@ -303,44 +300,33 @@ func (m Model) View() string {
 	if frameHeight < 1 {
 		frameHeight = 1
 	}
-	return m.renderHeader() + "\n" + m.frame.Render(m.width, frameHeight, "", footerBindings, m.state())
+	width := m.width
+	if width < 20 {
+		width = 20
+	}
+	divider := m.theme.Muted.Render(strings.Repeat("─", width))
+	return m.renderHeader() + "\n" + divider + "\n" + m.frame.Render(m.width, frameHeight, footerBindings, m.state())
 }
 
-// renderHeader paints the transcript overlay's two-row top
-// chrome: a breadcrumb that places the user in the
-// navigation, and a metadata strip that names the session
-// beneath it. The breadcrumb uses the project's hierarchy
-// separator (the chevron) to read as parent → child,
-// distinguishing it from the bullet the tab strip uses to
-// separate peer sections. Together the two rows replace the
-// chrome the tab strip would draw if the transcript were not
-// an overlay.
-func (m Model) renderHeader() string {
-	breadcrumb := m.theme.Title.Render("chronicle") +
-		m.theme.Muted.Render(theme.HierarchySeparator) +
-		m.theme.Subtitle.Render("sessions") +
-		m.theme.Muted.Render(theme.HierarchySeparator) +
-		m.theme.Accent.Render("transcript")
-	subtitle := m.renderSubtitle()
-	return breadcrumb + "\n" + subtitle
-}
-
-// renderSubtitle returns the one-line metadata strip that
+// renderHeader returns the one-line metadata strip that
 // names the session inside the transcript overlay. The
-// fields are joined by the project's peer separator (the
-// bullet) so the line reads the same as every other
-// peer-list strip the TUI shows.
-func (m Model) renderSubtitle() string {
-	parts := []string{m.provider}
+// strip carries the provider, the start time, the model,
+// and the session id, joined by the project's peer
+// separator so the line reads the same as every other
+// peer-list strip the TUI shows. There is no breadcrumb
+// because the user just pressed Enter on the session list
+// to get here — repeating the path is redundant chrome.
+func (m Model) renderHeader() string {
+	parts := []string{m.theme.Accent.Render(m.provider)}
 	if m.status == statusReady {
 		if !m.conv.StartedAt.IsZero() {
-			parts = append(parts, m.conv.StartedAt.Format("2006-01-02 15:04"))
+			parts = append(parts, m.theme.Subtitle.Render(m.conv.StartedAt.Format("2006-01-02 15:04")))
 		}
 		if m.conv.Model != "" {
-			parts = append(parts, m.conv.Model)
+			parts = append(parts, m.theme.Subtitle.Render(m.conv.Model))
 		}
 	}
-	parts = append(parts, string(m.sessionID))
+	parts = append(parts, m.theme.Muted.Render(string(m.sessionID)))
 	return strings.Join(parts, m.theme.Muted.Render(theme.Separator))
 }
 
