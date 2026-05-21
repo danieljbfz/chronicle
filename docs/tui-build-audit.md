@@ -23,39 +23,42 @@ screens. The CLI keeps its current shape for scripting.
 
 ## Current phase
 
-Phase 2 (transcript reader) is in progress. The code compiles
-and the existing test suite is green, but the phase is not done.
-What is left:
+Phase 3 (stats) is the next screen to build. Phase 2 is done
+and the codebase-wide review that followed it is done. The full
+test suite is green across all sixteen packages.
 
-1. **Write unit tests for the transcript package.** The pattern
-   to follow is `sessions_test.go`: define a Reader fake, drive
-   the Model through Update messages, assert the state. Pin
-   loading, ready, error, and the BackMsg emission on Esc.
-2. **Live-test against real data.** Run `./chronicle`, press
-   Enter on a session, confirm the transcript renders with
-   glamour's `dark` style, confirm Esc goes back to the list,
-   confirm scrolling and g/G work.
-3. **Consider switching glamour to terminal-aware styling.**
-   The first cut hard-codes `WithStandardStyle("dark")` because
-   glamour v2 dropped `WithAutoStyle`. A future pass should
-   either detect the terminal background colour or expose the
-   choice through the user's chronicle config.
-4. **Filter behaviour question.** The user observed that the
-   session list's filter "only applies after 3 letters" and
-   shows sessions with empty names before that. This is the
-   bubbles list's default fuzzy filter being permissive on
-   short queries combined with the fact that many real sessions
-   have empty titles (the first user message had no text — only
-   a tool result or an attached file). The renderer turns those
-   into "(untitled)". Decisions to make:
-   - Switch to substring (non-fuzzy) filtering. The bubbles
-     list accepts `Filter list.FilterFunc`; `list.UnsortedFilter`
-     is one option, a custom substring matcher is another.
-   - Or set a minimum filter length so 1-2 character queries
-     match nothing and the user sees the full list back.
-   - Or surface the "(untitled)" label more clearly so it does
-     not read as "empty."
-5. **Commit and update the audit** once 1, 2, and 3 are done.
+Phase 3 reads `composition.App.Stats` and renders the totals,
+the per-provider rows, the top-N projects, and the by-model
+breakdown. `lipgloss/v2/table` is the right tool, and no data
+fetch is needed beyond the one `Stats` call. The shape to
+follow is the session-list and transcript screens: a `Stats`
+interface that is the minimal subset of `composition.App` the
+screen reads, a `Model` with the standard loading/ready/error
+states, a breadcrumb header, and an always-visible help line.
+
+What is left before phase 3 starts:
+
+1. **Research.** Read `composition/stats.go` for the result
+   shape, read `cmd/chronicle/stats.go` for how the CLI already
+   renders it, and read the `lipgloss/v2/table` docs for the
+   column and border API.
+2. **Plan.** Surface the screen-level plan to the user — the
+   package, the files, the interface, the table layout, the
+   open questions — before writing code.
+3. **Execute, review, commit** on the same cadence the earlier
+   phases used.
+
+The phase-2 user observations are both resolved. The "filter
+only applies after 3 letters" report turned out to be a data
+issue, not a filter issue: many sessions had empty titles
+because every adapter set `SessionSummary.Title` from
+`FirstUserPrompt`, which is empty for sessions that began with
+a slash command, a tool result, or an attached file. The fix
+was `Conversation.ListingTitle` in contracts (see the Decisions
+entry below), which gives every row a recognizable name and
+lets the bubbles fuzzy filter behave naturally. The glamour
+style is now driven by the `ui.tui.glamour_style` config key
+rather than a hard-coded `dark` (also a Decisions entry).
 
 ## Decisions
 
@@ -169,6 +172,96 @@ These match the handoff's defaults. If any one of them is wrong
 for the project's direction, the next session can override the
 decision here and add a successor entry rather than editing the
 original.
+
+### 2026-05-21 — Listing identity: Conversation.ListingTitle
+
+The session list showed "(untitled)" rows that the user read as
+empty, and the bubbles fuzzy filter promoted those rows to the
+top of short-query results. The root cause was not the filter.
+Every adapter set `SessionSummary.Title` from
+`Conversation.FirstUserPrompt`, which is documented to return
+the empty string for sessions whose first turn carried no real
+user text — a slash command like `/clear`, a tool result, or an
+attached file. `FirstUserPrompt` is correct for the transcript
+header (it deliberately skips meta records so the transcript
+does not open with `<command-name>/clear</command-name>`), but
+the listing has the opposite need: every row wants a
+recognizable label even when there is no real user prompt.
+
+The fix is `Conversation.ListingTitle`, a new method in
+`contracts/listing_title.go`. It runs a six-rung cascade and
+returns the first non-empty value: the upstream-recorded Title,
+the first real user prompt, the first slash-command name
+(extracted from the `<command-name>` wrapper), the first
+assistant reply, the first tool name, and finally a synthetic
+identity built from `StartedAt` or `SessionID`. The method
+never returns the empty string, and a property test pins that
+invariant across five pathological conversation shapes. All
+three adapters now set `SessionSummary.Title` from
+`ListingTitle`, and the Markdown export heading uses it too.
+`FirstUserPrompt` stays unchanged for the transcript header and
+for `IsAbandoned`, which both genuinely care about real user
+text rather than recognizable identity.
+
+With every row carrying a real name, the bubbles fuzzy filter
+was left as-is rather than switched to substring matching. The
+"untitled rows float to the top" symptom was a consequence of
+the empty titles, not of the matcher, so fixing the data fixed
+the filter.
+
+### 2026-05-21 — Glamour style and theme: driven by config
+
+The transcript reader's first cut hard-coded
+`glamour.WithStandardStyle("dark")` because glamour v2 dropped
+the `WithAutoStyle` helper. The resolved approach reads a new
+`ui.tui.glamour_style` key from the chronicle TOML config,
+defaulting to `dark`. The accepted values mirror glamour v2's
+stylesheets (`ascii`, `dark`, `dracula`, `light`, `notty`,
+`pink`, `tokyo-night`). The existing `ui.tui.theme` key, which
+the session-1 wiring read into a config field but never
+threaded into the runtime, is now plumbed the same way.
+
+Both values are validated at the configuration boundary in
+`cmd/chronicle/main.go`. An unknown value falls back to the
+documented default with a full-sentence stderr warning that
+quotes the value, lists the accepted set, and names the
+fallback. The TUI internals trust the values once they cross
+that boundary, which matches the project's "validate at the
+boundary, trust internal callers" posture. The boundary helpers
+(`tui.ParseTheme`, `tui.IsKnownGlamourStyle`, and the
+list-formatting helpers the warnings use) all live in the `tui`
+package so `main.go` reaches into exactly one tui-tree package.
+
+### 2026-05-21 — Codebase-wide review after phase 2
+
+After phase 2 the user asked for a full review of the whole
+codebase, not just the session's diff. Six `code-reviewer`
+subagents covered the tree by layer (leaves, the three
+adapters, composition, the CLI), each reporting findings keyed
+by `path:line`. Every finding was verified against the real
+code before any fix landed — four higher-severity claims did
+not survive verification and were rejected with reasons (an
+"orphaned tool-start dropped" claim that the assistant-message
+event already covers, an "unknown user parts dropped" claim
+that the inline-surfacing path already handles, and two
+overstated severities).
+
+The verified findings produced nine small commits. Two were
+real correctness fixes: `composition/fsmove.go` now falls back
+to copy-and-remove only on a cross-device (`EXDEV`) rename
+error rather than on any failure, which previously could merge
+a directory tree into an existing destination and then delete
+the source, and the Claude adapter now advertises
+`ModelMetadata` truthfully (it reads the per-record model and
+reports the most-frequent value, so the old hard-coded `false`
+was wrong). The rest removed genuine hacks and dead code — a
+blank-identifier import hack in `search.go`, the dead
+`ErrNoGlobalConfigCapability` sentinel, the now-unreachable
+`(untitled)` and `truncateTitle` fallbacks — and unified the
+CLI's stdout/stderr handling behind injectable writers so the
+apply-path output is testable. The `Detect`-before-read
+precondition the adapters rely on is now explicit on the
+`contracts.Provider` interface.
 
 ## Open questions
 
@@ -350,6 +443,41 @@ calendar day.
 - Tests updated. Eight unit tests now cover the sessions
   package, including the sanitiser's invariants and the
   project-path decoder's cases.
+
+### 2026-05-21 — Session 2 (finish phase 2 + codebase review)
+
+- Read the session-2 handoff, the original brief's "How to
+  write/code/work" sections, `SKILL_PROMPT.md`, the build
+  audit, and the three first-time-reader docs
+  (`codebase-tour`, `feature-roadmap`, `provider-surface`).
+  Ran `make check` against a clean tree — green.
+- Finished phase 2 (the transcript reader):
+  - Wrote the transcript package's unit tests following the
+    `sessions_test.go` pattern. A `fakeReader` and a
+    `newTestModel` helper drive the Model through loading,
+    ready, error, the BackMsg emission on Esc, and a
+    WindowSizeMsg re-render at a new wrap width.
+  - Fixed the stale `app_test.go` test that still claimed the
+    OpenRequestMsg branch published a status message. The
+    behaviour is now a screen switch, so the test was renamed
+    and re-pointed to assert the active screen flips to the
+    transcript.
+- Resolved the two phase-2 user observations through the
+  `ListingTitle` and glamour-config decisions recorded above.
+- Drove the binary through `expect` for a launch/navigate/quit
+  smoke test (exit 0). The alt-screen frames are not
+  capturable from outside the terminal without `tmux`, which
+  is not installed, so the visual review depends on the user
+  running `./chronicle`.
+- On the user's request, ran a full codebase review with six
+  `code-reviewer` subagents partitioned by layer, verified
+  every finding against the code, rejected four overstated
+  claims with reasons, and landed nine small fixes. See the
+  "Codebase-wide review after phase 2" decision above for the
+  detail. The two correctness fixes were the `fsmove` EXDEV
+  gate and the Claude `ModelMetadata` flag.
+- Seventeen commits total this session, each with `make check`
+  green. Phase pointer moved to phase 3 (stats).
 
 ## Bubble Tea v2 API notes
 
