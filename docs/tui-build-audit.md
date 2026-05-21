@@ -23,10 +23,39 @@ screens. The CLI keeps its current shape for scripting.
 
 ## Current phase
 
-Phase 1 (session list screen) shipped, then was reopened when
-the user caught a layout-collapse bug on first inspection. The
-fix is committed and the screen now meets the visual bar. Phase
-2 (transcript reader) is next.
+Phase 2 (transcript reader) is in progress. The code compiles
+and the existing test suite is green, but the phase is not done.
+What is left:
+
+1. **Write unit tests for the transcript package.** The pattern
+   to follow is `sessions_test.go`: define a Reader fake, drive
+   the Model through Update messages, assert the state. Pin
+   loading, ready, error, and the BackMsg emission on Esc.
+2. **Live-test against real data.** Run `./chronicle`, press
+   Enter on a session, confirm the transcript renders with
+   glamour's `dark` style, confirm Esc goes back to the list,
+   confirm scrolling and g/G work.
+3. **Consider switching glamour to terminal-aware styling.**
+   The first cut hard-codes `WithStandardStyle("dark")` because
+   glamour v2 dropped `WithAutoStyle`. A future pass should
+   either detect the terminal background colour or expose the
+   choice through the user's chronicle config.
+4. **Filter behaviour question.** The user observed that the
+   session list's filter "only applies after 3 letters" and
+   shows sessions with empty names before that. This is the
+   bubbles list's default fuzzy filter being permissive on
+   short queries combined with the fact that many real sessions
+   have empty titles (the first user message had no text — only
+   a tool result or an attached file). The renderer turns those
+   into "(untitled)". Decisions to make:
+   - Switch to substring (non-fuzzy) filtering. The bubbles
+     list accepts `Filter list.FilterFunc`; `list.UnsortedFilter`
+     is one option, a custom substring matcher is another.
+   - Or set a minimum filter length so 1-2 character queries
+     match nothing and the user sees the full list back.
+   - Or surface the "(untitled)" label more clearly so it does
+     not read as "empty."
+5. **Commit and update the audit** once 1, 2, and 3 are done.
 
 ## Decisions
 
