@@ -34,7 +34,7 @@ will rely on:
 
 | Method | What you use it for |
 |---|---|
-| `Listings` | This is the master session list. It walks every provider, collects one `SessionListing` per session, and sorts the results so the most recently active session is at the top. |
+| `ListProjects`, `ListSessionsAll` | These two walk every provider and return the browse data. `ListProjects` gives one row per project with a session count attached. `ListSessionsAll` flattens the same data into one `SessionListing` per session. Neither method sorts the result, so the presentation layer picks the order it wants. |
 | `Search` | This finds sessions whose content matches a substring. The result carries the matching sessions together with the snippets that surround each match. Pass `SearchOptions.Provider` to narrow the search to one adapter. |
 | `Stats` | This is the one-screen summary the `chronicle stats` command renders. The result has the totals, the per-provider rows, the top-N projects, and the by-model breakdown. |
 | `Doctor` | This is the per-provider health report. Each `ProviderHealth` value carries the root directory, the detected version, the fingerprint, whether the root was reachable, the session count, and any warnings the adapter produced along the way. |
@@ -42,9 +42,9 @@ will rely on:
 | `Resume` | This tells the caller how to relaunch a session in its original tool. The result has the argv to run and the working directory to run it from. |
 | `PlanCleanup`, `ExecuteCleanup` | `PlanCleanup` walks the providers and builds the dry-run plan for one or more cleanup categories without touching disk. `ExecuteCleanup` takes that plan and actually moves the items into the trash. The CLI's `--apply` flag is what gates the second call. |
 | `TrashList`, `TrashRestore`, `TrashEmpty` | These three drive the trash subsystem. `TrashList` reads the manifests and returns one entry per trashed item. `TrashRestore` puts an entry back at its original location. `TrashEmpty` purges entries older than the retention window from the user's config. |
-| `ListMemories`, `ReadMemory`, `EditMemoryPath`, `CleanProjectMemory` | These four cover the per-project memory surface. Only the Claude adapter implements it today, so a call against a Copilot-only install comes back empty rather than erroring. |
-| `ListGlobalMemory`, `CleanGlobalMemory` | These two cover the user-global memory surface, which Claude exposes through `~/.claude/CLAUDE.md`. The Copilot adapters do not have anything equivalent yet. |
-| `ListConfigProjectEntries`, `CleanConfigProjects` | These two find stale entries inside Claude's global config file (`~/.claude.json`) and remove the ones whose project directory has gone. |
+| `ListMemories`, `ShowMemory`, `EditMemoryPath`, `CleanProjectMemory` | These four cover the per-project memory surface. `ListMemories` returns every memory the adapters know about, including the user-global ones, so a presentation layer that wants only one scope filters the result itself. Only the Claude adapter implements memory today, so a call against a Copilot-only install comes back empty rather than erroring. |
+| `ShowGlobalMemory`, `EditGlobalMemoryPath`, `CleanGlobalMemory` | These three cover the user-global memory surface, which Claude exposes through `~/.claude/CLAUDE.md`. The listing for global memories arrives through `ListMemories` above rather than through a separate method. The Copilot adapters do not have anything equivalent yet. |
+| `ListConfigProjects`, `CleanConfigProjects` | These two find stale entries inside Claude's global config file (`~/.claude.json`) and remove the ones whose project directory has gone. |
 | `BulkExport` | This writes one Markdown transcript per session inside a project, all in one call, to a directory the caller chooses. |
 
 Read the method signatures and documentation in `composition/`
