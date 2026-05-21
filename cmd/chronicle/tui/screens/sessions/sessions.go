@@ -152,10 +152,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// Reserve space for the screen's own header (two lines)
-		// and one trailing blank line. The list manages the area
-		// in between, including its status bar and help row.
-		listHeight := msg.Height - headerHeight - 1
+		// The app draws the tab strip and divider above this
+		// screen and forwards a height already reduced by that
+		// chrome, so the list takes the full height it receives.
+		// The list manages its own area within that, including
+		// its status bar and help row.
+		listHeight := msg.Height
 		if listHeight < 1 {
 			listHeight = 1
 		}
@@ -222,35 +224,15 @@ func (m Model) PublishStatusMessage(s string) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-// headerHeight is the number of terminal rows the screen's own
-// header occupies. The header has a title line and a divider
-// line below it.
-const headerHeight = 2
-
-// View renders the screen's content as a string. The top-level
-// app model wraps the string in a tea.View and sets the
-// alt-screen flag for the program as a whole.
+// View renders the screen's content as a string. The app draws
+// the tab strip above this and wraps the whole frame in a
+// tea.View, so the session list owns only the area beneath the
+// chrome.
 func (m Model) View() string {
-	body := m.renderBody()
-	return m.renderHeader() + "\n" + body
+	return m.renderBody()
 }
 
-// renderHeader paints the breadcrumb line and the divider that
-// sit above whichever body the current status calls for. The
-// divider runs the full width of the terminal so the header
-// reads as a single composed block rather than as a label
-// floating in space.
-func (m Model) renderHeader() string {
-	width := m.width
-	if width < 20 {
-		width = 20
-	}
-	title := m.theme.Title.Render("chronicle  ·  sessions")
-	divider := m.theme.Muted.Render(strings.Repeat("─", width))
-	return title + "\n" + divider
-}
-
-// renderBody returns the part of the screen below the header.
+// renderBody returns the screen's content below the app's chrome.
 // Each status case produces full-sentence prose so a user who
 // lands on the screen mid-state always knows what is happening
 // and what to do next.
