@@ -379,9 +379,6 @@ func (d delegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	age := composition.HumanAge(s.listing.Summary.LastActive)
 
 	title := sanitizeSingleLine(s.listing.Summary.Title)
-	if title == "" {
-		title = "(untitled)"
-	}
 
 	project := displayProjectPath(string(s.listing.Summary.Project), d.home)
 	project = sanitizeSingleLine(project)
