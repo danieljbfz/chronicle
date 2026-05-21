@@ -27,8 +27,19 @@ import (
 
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/keys"
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/theme"
+	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/ui"
 	"github.com/danieljbfz/chronicle/composition"
 )
+
+// extraHelpBindings lists the bindings this screen advertises in
+// addition to the global ones. Refresh is the screen-specific
+// action; the half-page and top/bottom hints announce that the
+// viewport supports them so the user discovers the keys.
+var extraHelpBindings = []key.Binding{
+	key.NewBinding(key.WithKeys("u", "d"), key.WithHelp("u/d", "half page")),
+	key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("g/G", "top/bottom")),
+	key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+}
 
 // Source is the small subset of composition.App the stats screen
 // reads. Defining it here lets production pass a *composition.App
@@ -59,6 +70,7 @@ type Model struct {
 	theme theme.Theme
 
 	viewport viewport.Model
+	spinner  ui.Spinner
 	status   status
 	err      error
 
@@ -84,14 +96,17 @@ func New(src Source, k keys.KeyMap, t theme.Theme) Model {
 		keys:     k,
 		theme:    t,
 		viewport: vp,
+		spinner:  ui.NewSpinner(t, "Computing the summary across every provider…"),
 		status:   statusLoading,
 	}
 }
 
 // Init returns the command that loads the summary for the first
-// frame.
+// frame, batched with the spinner's tick command so the loading
+// row animates and the elapsed counter updates while the fetch
+// is in flight.
 func (m Model) Init() tea.Cmd {
-	return m.fetch(m.width)
+	return tea.Batch(m.fetch(m.width), m.spinner.TickCmd())
 }
 
 // fetch returns a command that asks the Source for the summary,
@@ -173,7 +188,19 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.Refresh):
 			m.status = statusLoading
-			return m, m.fetch(m.contentWidth())
+			m.spinner = ui.NewSpinner(m.theme, "Refreshing the summary…")
+			return m, tea.Batch(m.fetch(m.contentWidth()), m.spinner.TickCmd())
+		}
+	}
+
+	// The spinner only matters while the screen is loading.
+	// Forwarding ticks after the load resolves would leave the
+	// glyph animating behind a ready or error state.
+	if m.status == statusLoading {
+		var spinCmd tea.Cmd
+		m.spinner, spinCmd = m.spinner.Update(msg)
+		if spinCmd != nil {
+			return m, spinCmd
 		}
 	}
 
@@ -204,7 +231,7 @@ func (m Model) View() string {
 func (m Model) renderBody() string {
 	switch m.status {
 	case statusLoading:
-		return m.theme.Muted.Render("Computing the summary across every provider…")
+		return m.spinner.View()
 	case statusError:
 		return m.theme.Error.Render("Could not compute stats: "+m.err.Error()) +
 			"\n\n" +
@@ -221,28 +248,7 @@ func (m Model) renderFooter() string {
 		width = minContentWidth
 	}
 	divider := m.theme.Muted.Render(strings.Repeat("─", width))
-	return divider + "\n" + m.renderHelp()
-}
-
-// renderHelp prints the short binding hints the footer carries.
-// The set is curated for the stats screen: it scrolls, it
-// refreshes, and the global section and quit keys round out the
-// line so the user can leave without guessing.
-func (m Model) renderHelp() string {
-	entries := []struct{ keyHint, desc string }{
-		{"↑/k", "up"},
-		{"↓/j", "down"},
-		{"u/d", "half page"},
-		{"g/G", "top/bottom"},
-		{"r", "refresh"},
-		{"1-5", "section"},
-		{"q", "quit"},
-	}
-	parts := make([]string, 0, len(entries))
-	for _, e := range entries {
-		parts = append(parts, m.theme.HelpKey.Render(e.keyHint)+" "+m.theme.HelpDesc.Render(e.desc))
-	}
-	return strings.Join(parts, m.theme.Muted.Render("  ·  "))
+	return divider + "\n" + ui.HelpBar(m.theme, m.keys, extraHelpBindings, width)
 }
 
 // renderStats lays the summary out as a string the viewport

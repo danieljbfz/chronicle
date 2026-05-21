@@ -27,9 +27,19 @@ import (
 
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/keys"
 	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/theme"
+	"github.com/danieljbfz/chronicle/cmd/chronicle/tui/ui"
 	"github.com/danieljbfz/chronicle/contracts"
 	"github.com/danieljbfz/chronicle/steps"
 )
+
+// extraHelpBindings lists the bindings this screen advertises in
+// addition to the global ones. The viewport handles half-page and
+// top/bottom scrolling internally; we only need to tell the help
+// bar they exist so the user discovers them.
+var extraHelpBindings = []key.Binding{
+	key.NewBinding(key.WithKeys("u", "d"), key.WithHelp("u/d", "half page")),
+	key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("g/G", "top/bottom")),
+}
 
 // Reader is the small subset of composition.App methods the
 // transcript reader relies on. Defining the interface here lets
@@ -79,6 +89,7 @@ type Model struct {
 	provider  string
 
 	viewport viewport.Model
+	spinner  ui.Spinner
 	status   status
 	err      error
 
@@ -110,15 +121,18 @@ func New(src Reader, k keys.KeyMap, t theme.Theme, glamourStyle string, sessionI
 		projectID:    projectID,
 		provider:     provider,
 		viewport:     vp,
+		spinner:      ui.NewSpinner(t, "Loading transcript…"),
 		status:       statusLoading,
 	}
 }
 
 // Init returns the command that fetches the conversation. The
 // command also runs the Markdown pipeline so the user only sees
-// one loading state instead of two.
+// one loading state instead of two. The spinner's tick command
+// runs alongside so the loading row animates and the elapsed
+// counter updates while the fetch is in flight.
 func (m Model) Init() tea.Cmd {
-	return m.fetch(m.width)
+	return tea.Batch(m.fetch(m.width), m.spinner.TickCmd())
 }
 
 // fetch returns a command that reads the session, renders the
@@ -249,6 +263,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 	}
 
+	// The spinner only matters while the screen is loading.
+	// Forwarding every message would route Bubble Tea's
+	// tea.TickMsg events into the spinner forever, leaving the
+	// glyph animating behind a ready or error state.
+	if m.status == statusLoading {
+		var spinCmd tea.Cmd
+		m.spinner, spinCmd = m.spinner.Update(msg)
+		if spinCmd != nil {
+			return m, spinCmd
+		}
+	}
+
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
 	return m, cmd
@@ -297,7 +323,7 @@ func (m Model) renderSubtitle(width int) string {
 func (m Model) renderBody() string {
 	switch m.status {
 	case statusLoading:
-		return m.theme.Muted.Render("Loading transcript…")
+		return m.spinner.View()
 	case statusError:
 		return m.theme.Error.Render("Could not load transcript: "+m.err.Error()) +
 			"\n" +
@@ -314,29 +340,7 @@ func (m Model) renderFooter() string {
 		width = 20
 	}
 	divider := m.theme.Muted.Render(strings.Repeat("─", width))
-	help := m.renderHelp()
-	return divider + "\n" + help
-}
-
-// renderHelp prints the short binding hints the footer carries.
-// The exact set is curated for the transcript reader rather than
-// inherited from a global help component: this screen has its
-// own most-useful bindings, and the help bar should advertise
-// them rather than a one-size-fits-all list.
-func (m Model) renderHelp() string {
-	entries := []struct{ keyHint, desc string }{
-		{"↑/k", "up"},
-		{"↓/j", "down"},
-		{"u/d", "half page"},
-		{"g/G", "top/bottom"},
-		{"esc", "back"},
-		{"q", "quit"},
-	}
-	var parts []string
-	for _, e := range entries {
-		parts = append(parts, m.theme.HelpKey.Render(e.keyHint)+" "+m.theme.HelpDesc.Render(e.desc))
-	}
-	return strings.Join(parts, m.theme.Muted.Render("  ·  "))
+	return divider + "\n" + ui.HelpBar(m.theme, m.keys, extraHelpBindings, width)
 }
 
 func back() tea.Cmd {

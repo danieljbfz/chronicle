@@ -76,10 +76,13 @@ func TestInit_ReturnsLoadCommand(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("Init should return a non-nil command")
 	}
-	msg := cmd()
-	loaded, ok := msg.(loadedMsg)
+	// Init batches the fetch with the spinner's tick command, so
+	// the outer call resolves to a tea.BatchMsg. The fetch is one
+	// of the inner commands; iterate the batch and find the
+	// loadedMsg the test cares about.
+	loaded, ok := findLoadedMsg(cmd)
 	if !ok {
-		t.Fatalf("the load command should resolve to a loadedMsg, got %T", msg)
+		t.Fatal("the Init batch should include a command that resolves to a loadedMsg")
 	}
 	if loaded.conv.Title != sample.Title {
 		t.Errorf("loadedMsg should carry the loaded conversation; got Title=%q", loaded.conv.Title)
@@ -87,6 +90,28 @@ func TestInit_ReturnsLoadCommand(t *testing.T) {
 	if loaded.rendered == "" {
 		t.Error("loadedMsg should carry the rendered Markdown")
 	}
+}
+
+// findLoadedMsg walks the batch of commands Init returns and runs
+// each one until it finds the loadedMsg the test asserts against.
+// The spinner's tick command resolves to a different type, so the
+// helper skips past it without failing.
+func findLoadedMsg(cmd tea.Cmd) (loadedMsg, bool) {
+	msg := cmd()
+	switch v := msg.(type) {
+	case loadedMsg:
+		return v, true
+	case tea.BatchMsg:
+		for _, c := range v {
+			if c == nil {
+				continue
+			}
+			if loaded, ok := findLoadedMsg(c); ok {
+				return loaded, true
+			}
+		}
+	}
+	return loadedMsg{}, false
 }
 
 // TestUpdate_LoadedMsg_PopulatesViewport confirms the loaded
