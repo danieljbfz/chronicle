@@ -1,10 +1,12 @@
 package composition
 
 import (
+	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // This file holds the cross-filesystem move helpers the trash
@@ -28,11 +30,25 @@ import (
 // for any user whose home directory and trash directory
 // happen to sit on different volumes.
 func moveFileOrDir(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
+	err := os.Rename(src, dst)
+	if err == nil {
 		return nil
 	}
-	// Rename failed. Determine whether the source is a file,
-	// a directory, or something we cannot copy.
+	// The copy-and-remove fallback is reserved for the one
+	// failure rename cannot handle on its own: src and dst sit
+	// on different filesystems, which the kernel reports as the
+	// cross-device error EXDEV. Every other rename failure — a
+	// missing parent directory, a permission denial, a non-empty
+	// destination directory — is a real error the caller needs
+	// to see. Falling back to copy-and-remove on those would
+	// mask the cause and, worse, could merge a source tree into
+	// an existing destination and then delete the source, which
+	// is not the move the caller asked for.
+	if !errors.Is(err, syscall.EXDEV) {
+		return err
+	}
+	// Determine whether the source is a file or a directory so
+	// we copy it the right way.
 	info, err := os.Lstat(src)
 	if err != nil {
 		return err

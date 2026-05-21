@@ -65,6 +65,48 @@ func TestMoveFileOrDir_movesADirectoryTree(t *testing.T) {
 	}
 }
 
+// TestMoveFileOrDir_nonCrossDeviceFailureDoesNotFallBack pins
+// the EXDEV-only contract. When os.Rename fails for a reason
+// other than a cross-device boundary, moveFileOrDir must
+// surface the error rather than fall back to copy-and-remove.
+// The fixture renames a directory onto an existing non-empty
+// directory, which the kernel rejects with ENOTEMPTY rather
+// than EXDEV. The old behaviour would have merged the source
+// tree into the destination and then deleted the source — a
+// silent, wrong move. The correct behaviour returns the error
+// and leaves the source in place.
+func TestMoveFileOrDir_nonCrossDeviceFailureDoesNotFallBack(t *testing.T) {
+	dir := t.TempDir()
+
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte("from source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The destination already exists and is non-empty, so the
+	// rename cannot succeed and the failure is not EXDEV.
+	dst := filepath.Join(dir, "dst")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "b.txt"), []byte("from dest"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := moveFileOrDir(src, dst); err == nil {
+		t.Fatal("moveFileOrDir should return an error when rename fails for a non-cross-device reason")
+	}
+	if _, err := os.Stat(filepath.Join(src, "a.txt")); err != nil {
+		t.Errorf("source should be left in place after a failed move, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "b.txt")); err != nil {
+		t.Errorf("destination contents should be untouched after a failed move, stat err = %v", err)
+	}
+}
+
 // TestCopyFile_preservesModeAndContents pins the copyFile
 // helper. It is the cross-volume fallback inside
 // moveFileOrDir, so when rename works we never see it run.
