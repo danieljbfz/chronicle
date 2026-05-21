@@ -9,13 +9,15 @@
 // Every action has a key binding (no mouse is required), the
 // help bar at the bottom of the list is always visible, the
 // loading, empty, and error states are written as full
-// sentences, and the currently focused row uses a high-contrast
-// reverse paint rather than a colour-only highlight.
+// sentences, and the currently focused row uses both an accent
+// colour and a bold weight so focus reads through colour or
+// weight alone.
 package sessions
 
 import (
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -84,9 +86,18 @@ type Model struct {
 // asynchronous fetch through src.ListSessionsAll, and the
 // "Scanning providers" message stays on screen until the
 // fetch's loadedMsg or errMsg arrives.
+//
+// The list is configured for a single visual register — title
+// hidden so the screen's own header is the only top-level
+// label, status bar visible so the user always sees the session
+// count and any transient status messages, help visible so
+// every binding the screen accepts is one keystroke away from
+// being discoverable.
 func New(src Lister, k keys.KeyMap, t theme.Theme) Model {
-	l := list.New(nil, newDelegate(t), 0, 0)
-	l.Title = "Sessions"
+	home, _ := os.UserHomeDir()
+
+	l := list.New(nil, newDelegate(t, home), 0, 0)
+	l.SetShowTitle(false)
 	l.SetShowStatusBar(true)
 	l.SetStatusBarItemName("session", "sessions")
 	l.SetFilteringEnabled(true)
@@ -141,7 +152,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.list.SetSize(msg.Width, msg.Height)
+		// Reserve space for the screen's own header (two lines)
+		// and one trailing blank line. The list manages the area
+		// in between, including its status bar and help row.
+		listHeight := msg.Height - headerHeight - 1
+		if listHeight < 1 {
+			listHeight = 1
+		}
+		m.list.SetSize(msg.Width, listHeight)
 	case loadedMsg:
 		sortByLastActive(msg.listings)
 		items := make([]list.Item, len(msg.listings))
@@ -192,10 +210,51 @@ func (m Model) IsFiltering() bool {
 	return m.list.SettingFilter()
 }
 
+// PublishStatusMessage pushes a transient note into the list's
+// status bar. The list rotates the message back to the item
+// count after a few seconds. The app model calls this to
+// surface a short notice — for example, "Transcript reader is
+// wiring up" — without pushing the rest of the screen layout
+// around. Returning the updated Model alongside the cmd keeps
+// the call site consistent with every other Update path.
+func (m Model) PublishStatusMessage(s string) (Model, tea.Cmd) {
+	cmd := m.list.NewStatusMessage(s)
+	return m, cmd
+}
+
+// headerHeight is the number of terminal rows the screen's own
+// header occupies. The header has a title line and a divider
+// line below it.
+const headerHeight = 2
+
 // View renders the screen's content as a string. The top-level
 // app model wraps the string in a tea.View and sets the
 // alt-screen flag for the program as a whole.
 func (m Model) View() string {
+	body := m.renderBody()
+	return m.renderHeader() + "\n" + body
+}
+
+// renderHeader paints the breadcrumb line and the divider that
+// sit above whichever body the current status calls for. The
+// divider runs the full width of the terminal so the header
+// reads as a single composed block rather than as a label
+// floating in space.
+func (m Model) renderHeader() string {
+	width := m.width
+	if width < 20 {
+		width = 20
+	}
+	title := m.theme.Title.Render("chronicle  ·  sessions")
+	divider := m.theme.Muted.Render(strings.Repeat("─", width))
+	return title + "\n" + divider
+}
+
+// renderBody returns the part of the screen below the header.
+// Each status case produces full-sentence prose so a user who
+// lands on the screen mid-state always knows what is happening
+// and what to do next.
+func (m Model) renderBody() string {
 	switch m.status {
 	case statusLoading:
 		return m.theme.Muted.Render("Scanning providers for sessions…")
@@ -243,45 +302,59 @@ func sortByLastActive(s []composition.SessionListing) {
 }
 
 // sessionItem wraps one composition.SessionListing so the bubbles
-// list can hold it as a list.Item. The FilterValue concatenates
-// the title, project, and provider so the list's filter accepts
-// any one of them as a search term.
+// list can hold it as a list.Item. The wrapper is intentionally
+// thin — every render path reaches the listing through the
+// listing field rather than through a duplicated cache of
+// derived strings — so adding a new column later means changing
+// the delegate's Render method and nothing else.
 type sessionItem struct {
 	listing composition.SessionListing
 }
 
+// FilterValue concatenates the sanitised title, the project,
+// and the provider so the list's filter accepts any one of
+// them as a search term. The sanitisation matters because
+// session titles routinely contain embedded newlines from the
+// user's first pasted message, and raw newlines inside the
+// filter target would let a user "match" a session by typing
+// characters that were never actually visible in the title.
 func (i sessionItem) FilterValue() string {
 	return strings.Join([]string{
-		i.listing.Summary.Title,
-		string(i.listing.Summary.Project),
+		sanitizeSingleLine(i.listing.Summary.Title),
+		sanitizeSingleLine(string(i.listing.Summary.Project)),
 		i.listing.Provider,
 	}, " ")
 }
 
 // delegate is the bubbles list's per-row renderer. The row draws
-// two lines: a header line with the provider badge, the title,
-// and a relative-time-ago label, and a subtitle line with the
-// project path in a muted style. The selected row uses the
-// theme's reverse-paint Highlight style so the focus stays
-// readable on terminals where colour alone is not enough.
+// exactly two terminal lines: a header line with the provider
+// badge, the title, and a relative-time-ago label, and a
+// subtitle line with the decoded project path in a muted style.
+// The list component holds a strict invariant that every Render
+// call must paint exactly Height() lines; if the delegate ever
+// paints more, the list's viewport math drifts, items overlap,
+// and the cursor can move to rows that are no longer visible.
+// The sanitiser at the top of Render is the one piece of code
+// in this file that enforces that invariant.
 type delegate struct {
 	theme theme.Theme
+	home  string
 }
 
-func newDelegate(t theme.Theme) delegate {
-	return delegate{theme: t}
+func newDelegate(t theme.Theme, home string) delegate {
+	return delegate{theme: t, home: home}
 }
 
 const (
-	delegateHeight       = 2
-	delegateSpacing      = 1
-	providerColumnWidth  = 13
-	minimumTitleWidth    = 10
-	rowMarkerSelected    = "▶ "
-	rowMarkerUnselected  = "  "
-	provideTitleGap      = 1
-	titleAgeGap          = 1
-	projectPrefixPadding = 2
+	delegateHeight      = 2
+	delegateSpacing     = 1
+	providerColumnWidth = 11
+	minimumTitleWidth   = 12
+	rowMarkerSelected   = "▌ "
+	rowMarkerUnselected = "  "
+	provideTitleGap     = 2
+	titleAgeGap         = 2
+	projectIndentWidth  = 4
 )
 
 func (d delegate) Height() int                             { return delegateHeight }
@@ -296,21 +369,26 @@ func (d delegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 
 	isSelected := index == m.Index()
 	width := m.Width()
-	if width < providerColumnWidth+minimumTitleWidth {
-		width = providerColumnWidth + minimumTitleWidth
+	if width < providerColumnWidth+minimumTitleWidth+12 {
+		width = providerColumnWidth + minimumTitleWidth + 12
 	}
 
-	provider := padRight(s.listing.Provider, providerColumnWidth)
+	provider := truncate(sanitizeSingleLine(s.listing.Provider), providerColumnWidth)
+	providerPadded := padRight(provider, providerColumnWidth)
+
 	age := composition.HumanAge(s.listing.Summary.LastActive)
-	title := strings.TrimSpace(s.listing.Summary.Title)
+
+	title := sanitizeSingleLine(s.listing.Summary.Title)
 	if title == "" {
 		title = "(untitled)"
 	}
 
-	// Reserve space along the header line for the row marker, the
-	// provider badge, the gap between badge and title, the gap
-	// between title and age, and the age label itself. Anything
-	// left over belongs to the title.
+	project := displayProjectPath(string(s.listing.Summary.Project), d.home)
+	project = sanitizeSingleLine(project)
+
+	// The header line is: marker + provider + gap + title + gap + age.
+	// Reserve room for everything except the title, then give the
+	// title whatever width remains.
 	headerOverhead := lipgloss.Width(rowMarkerUnselected) +
 		providerColumnWidth + provideTitleGap +
 		titleAgeGap + lipgloss.Width(age)
@@ -319,34 +397,112 @@ func (d delegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 		titleWidth = minimumTitleWidth
 	}
 	title = truncate(title, titleWidth)
-	project := truncate(string(s.listing.Summary.Project), width-projectPrefixPadding)
+
+	projectIndent := strings.Repeat(" ", projectIndentWidth)
+	projectWidth := width - lipgloss.Width(projectIndent)
+	if projectWidth < 1 {
+		projectWidth = 1
+	}
+	project = truncate(project, projectWidth)
 
 	marker := rowMarkerUnselected
 	if isSelected {
 		marker = rowMarkerSelected
 	}
 
-	var header, projectLine string
+	var headerLine, projectLine string
 	if isSelected {
-		// The selected row uses one continuous reverse paint so
-		// the eye lands on the row regardless of terminal colour
-		// support. The padding fills the row to the full width
-		// so the highlight runs edge to edge.
-		row := marker + provider + strings.Repeat(" ", provideTitleGap) + padRight(title, titleWidth) + strings.Repeat(" ", titleAgeGap) + age
-		header = d.theme.Highlight.Render(row)
-		projectLine = d.theme.Highlight.Render(strings.Repeat(" ", projectPrefixPadding) + padRight(project, width-projectPrefixPadding))
+		// The selected row has an accent-coloured bar marker and
+		// a bold accent title. Focus reads through colour and
+		// weight together, so a user with reduced colour
+		// perception still sees the focus from the weight
+		// change alone, and a user with reduced contrast still
+		// sees it from the marker bar.
+		headerLine = d.theme.Accent.Render(marker) +
+			d.theme.Accent.Render(providerPadded) +
+			strings.Repeat(" ", provideTitleGap) +
+			d.theme.Accent.Bold(true).Render(title) +
+			strings.Repeat(" ", titleAgeGap) +
+			d.theme.Muted.Render(age)
+		projectLine = projectIndent + d.theme.Muted.Render(project)
 	} else {
-		header = marker +
-			d.theme.Accent.Render(provider) +
+		headerLine = marker +
+			d.theme.Accent.Render(providerPadded) +
 			strings.Repeat(" ", provideTitleGap) +
 			d.theme.Title.Render(title) +
 			strings.Repeat(" ", titleAgeGap) +
 			d.theme.Muted.Render(age)
-		projectLine = strings.Repeat(" ", projectPrefixPadding) + d.theme.Muted.Render(project)
+		projectLine = projectIndent + d.theme.Muted.Render(project)
 	}
 
-	fmt.Fprintln(w, header)
+	fmt.Fprintln(w, headerLine)
 	fmt.Fprint(w, projectLine)
+}
+
+// sanitizeSingleLine collapses any string that might span more
+// than one terminal line into one. Newlines, carriage returns,
+// and tabs are replaced with spaces, runs of whitespace are
+// collapsed into a single space, and leading and trailing
+// whitespace is trimmed. The function is the one place a
+// future contributor needs to look to understand why the list's
+// per-row height invariant survives titles that arrive with
+// embedded line breaks from the user's first pasted message.
+func sanitizeSingleLine(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	prevSpace := true // treat the implicit left edge as whitespace, so leading runs are skipped
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			r = ' '
+		}
+		if r == ' ' {
+			if !prevSpace {
+				b.WriteRune(' ')
+				prevSpace = true
+			}
+			continue
+		}
+		b.WriteRune(r)
+		prevSpace = false
+	}
+	return strings.TrimRight(b.String(), " ")
+}
+
+// displayProjectPath turns a provider's raw ProjectID into the
+// path a user recognises. Claude's adapter encodes paths by
+// replacing every forward slash with a hyphen and prepending a
+// leading hyphen for the root slash, so a project identifier
+// like "-Users-djbf-Desktop-work-chronicle" comes back as
+// "/Users/djbf/Desktop/work/chronicle". The Copilot adapters
+// use opaque hashes that have no decoded form, and those are
+// returned as-is. When the decoded path begins with the user's
+// home directory, the function replaces the home prefix with
+// "~" so the row reads "~/Desktop/work/chronicle" rather than
+// the full absolute path.
+//
+// The decoder is best effort. Claude's encoding loses
+// information when the original path contained hyphens — a
+// "/Users/djbf/my-project" round-trips through the same
+// encoding as "/Users/djbf/my/project". The chronicle CLI
+// already accepts the loss, and this function inherits the
+// trade-off.
+func displayProjectPath(projectID, home string) string {
+	if projectID == "" {
+		return "(unknown project)"
+	}
+
+	decoded := projectID
+	if strings.HasPrefix(projectID, "-") {
+		decoded = "/" + strings.ReplaceAll(projectID[1:], "-", "/")
+	}
+
+	if home != "" && strings.HasPrefix(decoded, home) {
+		rest := strings.TrimPrefix(decoded, home)
+		if rest == "" || rest[0] == '/' {
+			return "~" + rest
+		}
+	}
+	return decoded
 }
 
 // truncate clips s to a maximum rune count, appending a single

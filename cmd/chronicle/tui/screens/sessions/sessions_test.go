@@ -164,6 +164,93 @@ func TestSessionItem_FilterValueIncludesEveryField(t *testing.T) {
 	}
 }
 
+// TestSanitizeSingleLine_FlattensEmbeddedNewlines pins the
+// invariant the row delegate relies on: any string passed
+// through this helper can be rendered safely into a single
+// terminal line. The list component's viewport breaks badly
+// when a row paints more lines than Height() promises, so
+// every title and project field reaches the renderer through
+// this helper.
+func TestSanitizeSingleLine_FlattensEmbeddedNewlines(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"plain", "hello world", "hello world"},
+		{"trailing newline", "hello\n", "hello"},
+		{"embedded newline", "hello\nworld", "hello world"},
+		{"multiple newlines", "a\n\nb\n\nc", "a b c"},
+		{"tab and cr", "a\tb\rc", "a b c"},
+		{"runs of spaces", "a    b\n\n  c", "a b c"},
+		{"leading whitespace", "  hello", "hello"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := sanitizeSingleLine(c.in)
+			if got != c.want {
+				t.Errorf("sanitizeSingleLine(%q) = %q; want %q", c.in, got, c.want)
+			}
+			if strings.ContainsAny(got, "\n\r\t") {
+				t.Errorf("sanitised output still carries a line-breaking character: %q", got)
+			}
+		})
+	}
+}
+
+// TestDisplayProjectPath_DecodesAndCollapsesHome confirms the
+// decoder turns Claude's dash-separated project identifiers into
+// the absolute paths users recognise, and that the home-prefix
+// collapse to "~" runs when the absolute path lives under the
+// user's home directory.
+func TestDisplayProjectPath_DecodesAndCollapsesHome(t *testing.T) {
+	cases := []struct {
+		name      string
+		projectID string
+		home      string
+		want      string
+	}{
+		{
+			name:      "claude encoded with home collapse",
+			projectID: "-Users-djbf-Desktop-work-chronicle",
+			home:      "/Users/djbf",
+			want:      "~/Desktop/work/chronicle",
+		},
+		{
+			name:      "claude encoded without home match",
+			projectID: "-Users-other-Desktop-work-chronicle",
+			home:      "/Users/djbf",
+			want:      "/Users/other/Desktop/work/chronicle",
+		},
+		{
+			name:      "non-encoded passes through unchanged",
+			projectID: "workspace-abc123",
+			home:      "/Users/djbf",
+			want:      "workspace-abc123",
+		},
+		{
+			name:      "empty",
+			projectID: "",
+			home:      "/Users/djbf",
+			want:      "(unknown project)",
+		},
+		{
+			name:      "encoded path that exactly matches home",
+			projectID: "-Users-djbf",
+			home:      "/Users/djbf",
+			want:      "~",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := displayProjectPath(c.projectID, c.home); got != c.want {
+				t.Errorf("displayProjectPath(%q, %q) = %q; want %q", c.projectID, c.home, got, c.want)
+			}
+		})
+	}
+}
+
 // sample is the small factory the tests use to build a
 // SessionListing with the fields the screen actually reads.
 // Fields the screen never touches are left at zero.

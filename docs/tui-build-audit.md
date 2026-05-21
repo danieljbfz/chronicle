@@ -23,8 +23,10 @@ screens. The CLI keeps its current shape for scripting.
 
 ## Current phase
 
-Phase 1 (session list screen) is complete on a clean working
-tree ready for commit. Phase 2 (transcript reader) is next.
+Phase 1 (session list screen) shipped, then was reopened when
+the user caught a layout-collapse bug on first inspection. The
+fix is committed and the screen now meets the visual bar. Phase
+2 (transcript reader) is next.
 
 ## Decisions
 
@@ -276,6 +278,49 @@ calendar day.
     not capturable from outside the terminal without `tmux`
     capture-pane, so the visual review depends on the user
     actually running `./chronicle` and looking.
+
+### 2026-05-21 — Session 1 continued (phase 1 fix: layout collapse)
+
+- The user inspected the first phase-1 cut and flagged two
+  blocking issues: the layout looked like a mess of randomly
+  spread text, and items below the viewport could be focused
+  but never came into view. The root cause was that session
+  titles can carry raw newlines from the user's first pasted
+  message, and the row delegate painted those newlines into
+  the row. The bubbles list trusts the delegate to paint
+  exactly Height() lines per item, so a row that painted ten
+  or thirty lines broke pagination, scrolling, and the help
+  bar.
+- The fix introduces sanitizeSingleLine, the one helper that
+  enforces the row's single-line invariant. Every title and
+  every project path passes through it before reaching the
+  delegate or the filter.
+- displayProjectPath decodes Claude's dash-separated project
+  identifiers back into absolute paths, then collapses the
+  home prefix to "~". The Copilot adapters use opaque hashes
+  that have no decoded form, and those pass through unchanged.
+- The bubbles list's default purple "Sessions" title block is
+  disabled. The screen now renders its own breadcrumb header
+  ("chronicle · sessions") with a horizontal divider beneath
+  it, and the app model's earlier header is gone — the screen
+  owns its full layout.
+- The selected row uses an accent-coloured bar marker plus a
+  bold accent title rather than a full-row reverse paint.
+  Focus reads through colour and weight together, which
+  satisfies the accessibility bar without overpainting the
+  row.
+- Pressing Enter on a session pushes a transient notice into
+  the list's built-in status bar via PublishStatusMessage,
+  rather than pushing a status banner above the screen. No
+  visual jitter.
+- The app model shrinks to a router — Init forwards to
+  sessions, Update handles globals and the OpenRequestMsg,
+  View wraps the screen's content in a tea.View. The Screen
+  interface lands in phase 2 when there is a second screen to
+  abstract.
+- Tests updated. Eight unit tests now cover the sessions
+  package, including the sanitiser's invariants and the
+  project-path decoder's cases.
 
 ## Bubble Tea v2 API notes
 
