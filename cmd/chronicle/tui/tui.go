@@ -11,6 +11,7 @@ package tui
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -82,6 +83,81 @@ func IsKnownGlamourStyle(name string) bool {
 		}
 	}
 	return false
+}
+
+// JoinKnownGlamourStyles renders the slice of accepted style
+// names as a single human-readable list (`"a", "b", or "c"`) the
+// boundary code can drop straight into a warning sentence. The
+// function is the one place knownGlamourStyles becomes prose, so
+// a future addition to the slice flows into every warning
+// automatically rather than silently going out of sync.
+func JoinKnownGlamourStyles() string {
+	return joinQuotedOxford(knownGlamourStyles)
+}
+
+// knownThemeNames is the list of strings ParseTheme recognises,
+// in the order they should appear in user-facing messages. The
+// list is the canonical source for both the parser and any
+// warning the boundary code emits, so adding a new theme means
+// editing this slice and ParseTheme together.
+var knownThemeNames = []string{"auto", "terminal", "dark"}
+
+// JoinKnownThemes renders the accepted theme names as a single
+// human-readable list, the same shape JoinKnownGlamourStyles
+// uses for the glamour styles. Both functions exist so warnings
+// can quote the valid set without the boundary code holding two
+// copies of the list.
+func JoinKnownThemes() string {
+	return joinQuotedOxford(knownThemeNames)
+}
+
+// ParseTheme maps the string value from the user's chronicle
+// config file (`[ui.tui].theme`) to a theme.Variant. The "auto"
+// value, the "terminal" value, and the empty string all map to
+// VariantTerminal — the scheme that inherits the user's terminal
+// palette — because that is the default chronicle ships with.
+// The "dark" value maps to VariantDark. Any other input falls
+// through to VariantTerminal with ok=false so the caller can
+// warn the user that the value they wrote was not recognised
+// before the runtime continues with the fallback.
+//
+// The function lives in the tui package alongside the glamour
+// boundary helpers (IsKnownGlamourStyle, JoinKnownGlamourStyles)
+// rather than in the theme sub-package, so main.go reaches into
+// exactly one tui-tree package when it validates the user's
+// config values.
+func ParseTheme(name string) (theme.Variant, bool) {
+	switch name {
+	case "", "auto", "terminal":
+		return theme.VariantTerminal, true
+	case "dark":
+		return theme.VariantDark, true
+	default:
+		return theme.VariantTerminal, false
+	}
+}
+
+// joinQuotedOxford turns a slice of bare strings into a
+// double-quoted, comma-separated, Oxford-or list. The empty
+// slice produces the empty string, a one-element slice produces
+// the single quoted value, and longer slices produce the form
+// `"a", "b", or "c"` so the result drops naturally into a
+// full-sentence warning message.
+func joinQuotedOxford(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(items))
+	for i, s := range items {
+		quoted[i] = `"` + s + `"`
+	}
+	if len(quoted) == 1 {
+		return quoted[0]
+	}
+	if len(quoted) == 2 {
+		return quoted[0] + " or " + quoted[1]
+	}
+	return strings.Join(quoted[:len(quoted)-1], ", ") + ", or " + quoted[len(quoted)-1]
 }
 
 // Run launches the TUI and blocks until the user exits or an
