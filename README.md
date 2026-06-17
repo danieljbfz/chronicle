@@ -22,7 +22,7 @@ Status: under active development. See [`docs/codebase-tour.md`](docs/codebase-to
 ## Install (from source, during development)
 
 ```bash
-  go build -o chronicle ./cmd/chronicle
+go build -o chronicle ./cmd/chronicle
 ./chronicle doctor
 ```
 
