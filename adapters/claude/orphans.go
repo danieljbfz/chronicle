@@ -73,9 +73,14 @@ const backupsKeepCount = 5
 // The function is called from PlanOrphanScan after the
 // per-session orphan checks, so the resulting plan covers
 // everything chronicle knows how to identify as orphan.
-func scanFloatingOrphans(root fs.FS, plan *contracts.DeletePlan) {
+//
+// knownSessions is the set of live session UUIDs PlanOrphanScan
+// already built. It is passed in rather than rebuilt because the
+// security-warning heuristic below needs it, and re-deriving it
+// would walk the projects tree a second time.
+func scanFloatingOrphans(root fs.FS, knownSessions map[string]bool, plan *contracts.DeletePlan) {
 	scanPasteCacheOrphans(root, plan)
-	scanSecurityWarningOrphans(root, plan)
+	scanSecurityWarningOrphans(root, knownSessions, plan)
 	scanShellSnapshotOrphans(root, plan)
 	scanBackupOrphans(root, plan)
 }
@@ -147,14 +152,9 @@ func readPasteHashes(root fs.FS) map[string]bool {
 // files at the top level of ~/.claude whose session UUID does
 // not match any live session. The file naming scheme is
 // security_warnings_state_<uuid>.json, so we extract the UUID
-// and check it against the set of live session IDs that
-// collectKnownSessionIDs already builds for the per-session
-// orphan scan.
-func scanSecurityWarningOrphans(root fs.FS, plan *contracts.DeletePlan) {
-	known, err := collectKnownSessionIDs(root)
-	if err != nil {
-		return
-	}
+// and check it against knownSessions, the set of live session
+// IDs PlanOrphanScan already built.
+func scanSecurityWarningOrphans(root fs.FS, knownSessions map[string]bool, plan *contracts.DeletePlan) {
 	entries, err := fs.ReadDir(root, ".")
 	if err != nil {
 		return
@@ -172,7 +172,7 @@ func scanSecurityWarningOrphans(root fs.FS, plan *contracts.DeletePlan) {
 		if !ok {
 			continue
 		}
-		if known[uuid] {
+		if knownSessions[uuid] {
 			continue
 		}
 		addItem(root, plan, name, reasonOrphanWarning)

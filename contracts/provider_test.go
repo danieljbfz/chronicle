@@ -8,11 +8,14 @@ import "io/fs"
 // in the composition package.
 type stubProvider struct{}
 
-func (stubProvider) Name() string                                            { return "stub" }
-func (stubProvider) Detect(fs.FS) (StorageVersion, error)                    { return StorageVersion{}, nil }
-func (stubProvider) ListProjects(fs.FS) ([]Project, error)                   { return nil, nil }
-func (stubProvider) ListSessions(fs.FS, ProjectID) ([]SessionSummary, error) { return nil, nil }
-func (stubProvider) ReadSession(fs.FS, SessionID) (Conversation, error)      { return Conversation{}, nil }
+func (stubProvider) Name() string                                           { return "stub" }
+func (stubProvider) Detect(fs.FS) (StorageVersion, error)                   { return StorageVersion{}, nil }
+func (stubProvider) ListProjects(fs.FS) ([]Project, error)                  { return nil, nil }
+func (stubProvider) ListSessionRefs(fs.FS, ProjectID) ([]SessionRef, error) { return nil, nil }
+func (stubProvider) SummarizeSession(fs.FS, SessionRef) (SessionSummary, error) {
+	return SessionSummary{}, nil
+}
+func (stubProvider) ReadSession(fs.FS, SessionID) (Conversation, error) { return Conversation{}, nil }
 
 // stubCleaner is a separate type that exercises the optional
 // Cleaner interface. Splitting it from stubProvider is the point:

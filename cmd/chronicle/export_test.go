@@ -30,8 +30,11 @@ func (stubProvider) Detect(fs.FS) (contracts.StorageVersion, error) {
 func (stubProvider) ListProjects(fs.FS) ([]contracts.Project, error) {
 	return nil, nil
 }
-func (stubProvider) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (stubProvider) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (stubProvider) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (s stubProvider) ReadSession(_ fs.FS, _ contracts.SessionID) (contracts.Conversation, error) {
 	return s.convo, nil

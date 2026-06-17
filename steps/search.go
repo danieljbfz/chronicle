@@ -125,10 +125,11 @@ func Match(conv contracts.Conversation, query string, opts SearchOptions) []Sear
 
 // joinTextBlocks pulls every TextBlock out of a message and
 // joins them with single newlines. We only walk TextBlock
-// content because the other block kinds (thinking, tool use,
-// tool result, image, unknown) are not what the user wants
-// to search through. The user's mental model is conversation
-// text, and that is exactly what TextBlock holds.
+// content because every other block kind (thinking, tool use
+// and result, image, away summary, file context, unknown) is
+// not what the user wants to search through. The user's mental
+// model is conversation text, and that is exactly what
+// TextBlock holds.
 func joinTextBlocks(blocks []contracts.Block) string {
 	var parts []string
 	for _, block := range blocks {

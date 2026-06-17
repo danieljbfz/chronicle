@@ -24,6 +24,10 @@ func TestResolve_usesEnvOverride(t *testing.T) {
 	if loc.ClaudeRoot != "/tmp/fake-home/.claude" {
 		t.Errorf("ClaudeRoot = %q, want %q", loc.ClaudeRoot, "/tmp/fake-home/.claude")
 	}
+	wantCache := filepath.Join("/tmp/fake-home", ".cache", "chronicle")
+	if loc.CacheDir != wantCache {
+		t.Errorf("CacheDir = %q, want %q", loc.CacheDir, wantCache)
+	}
 }
 
 // TestResolve_realHomeWhenNoOverride confirms the production fallback:

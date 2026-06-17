@@ -55,14 +55,16 @@ func readSessionFile(root fs.FS, sessionFile string, source contracts.StorageVer
 // the resilience rule says we should never do.
 //
 // Second pass: walk the records in order and turn each one into a
-// Message. User and assistant records become real messages. A
-// handful of internal Claude records (system notes, attachments,
-// queue operations, and a few others) are not part of the
-// conversation a person reads, so we drop them on the floor. Records
-// of a type chronicle does not recognize at all become a meta
-// message that wraps an UnknownBlock holding the original line. The
-// renderer can then show the unknown content to the user instead
-// of pretending it never existed.
+// Message. User and assistant records become real messages. A few
+// non-conversation record types still carry conversation content — a
+// prompt the user sent from the queue, an away summary, a file the
+// editor attached — and we rescue those. The remaining internal
+// records (hook output, the queue bookkeeping, permission state, and
+// so on) are not content a person reads, so we drop them on the
+// floor. Records of a type chronicle does not recognize at all become
+// a meta message that wraps an UnknownBlock holding the original
+// line. The renderer can then show the unknown content to the user
+// instead of pretending it never existed.
 //
 // Third pass: sort the messages by timestamp. Claude writes them in
 // chronological order today, so the sort almost never reorders
@@ -93,12 +95,14 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 
 	// Step 2: walk the records in order and turn each one into
 	// a Message. User and assistant records become real
-	// messages. A handful of internal Claude records (system
-	// notes, attachments, queue operations, and a few others)
-	// are not conversation a person reads, so we drop them on
-	// the floor. Records of a type chronicle does not recognise
-	// at all become a meta message that wraps an UnknownBlock
-	// so the renderer can surface them.
+	// messages. A few non-conversation records still carry
+	// conversation content (a sent queued prompt, an away
+	// summary, a file the editor attached) and we rescue those.
+	// The remaining internal records are bookkeeping a person
+	// does not read, so we drop them on the floor. Records of a
+	// type chronicle does not recognise at all become a meta
+	// message that wraps an UnknownBlock so the renderer can
+	// surface them.
 	var (
 		messages  []contracts.Message
 		sessionID contracts.SessionID
@@ -125,18 +129,64 @@ func parseStream(r io.Reader, source contracts.StorageVersion) (contracts.Conver
 
 		switch record.Type {
 		case "user":
-			messages = append(messages, parseUserRecord(record, ts))
+			// A record whose content decodes to no blocks has nothing
+			// to render and would surface as a bare "## User" heading,
+			// so drop it the way the copilot adapters drop their own
+			// blockless messages.
+			if msg := parseUserRecord(record, ts); len(msg.Blocks) > 0 {
+				messages = append(messages, msg)
+			}
 		case "assistant":
-			messages = append(messages, parseAssistantRecord(record, ts))
+			if msg := parseAssistantRecord(record, ts); len(msg.Blocks) > 0 {
+				messages = append(messages, msg)
+			}
 		case "system":
-			// System notes are things like local-command output and
-			// hook output. They are not part of the conversation a
-			// person reads, so we drop them. If a future feature
-			// wants to show them, we would add a SystemBlock then.
-		case "attachment", "file-history-snapshot", "last-prompt",
-			"permission-mode", "queue-operation":
-			// Bookkeeping records Claude writes for itself. Not
-			// conversation content, so we drop them.
+			// Most system notes are bookkeeping: turn timings, hook
+			// output, local-command echoes, api-error retries. We drop
+			// those. The one exception is the away_summary subtype,
+			// which carries a goal-and-status summary Claude writes for
+			// the user and explicitly marks isMeta:false. We surface
+			// that as an AwaySummaryBlock and drop the rest.
+			if msg, ok := parseSystemRecord(record, ts); ok {
+				messages = append(messages, msg)
+			}
+		case "attachment":
+			// An attachment wraps one of a few dozen inner types, almost
+			// all of them bookkeeping (task reminders, hook output, skill
+			// listings, capability deltas, IDE markers). The ones we
+			// rescue carry conversation content: a queued_command, which
+			// is a prompt the user sent from the queue, and the
+			// file-context attachments, which are files the editor put in
+			// front of the assistant. Everything else stays dropped,
+			// including content-bearing but non-conversation records like
+			// invoked_skills and hook_additional_context — a transcript is
+			// the conversation, not the skill and hook machinery behind
+			// it. We do not route unknown inner types to UnknownBlock on
+			// purpose. The resilience rule exists for unknown top-level
+			// record types, and stretching it to cover these known inner
+			// types would only bury the transcript under hundreds of
+			// reminder records.
+			if msg, ok := parseAttachmentRecord(record, ts); ok {
+				messages = append(messages, msg)
+			}
+		case "queue-operation", "file-history-snapshot", "last-prompt",
+			"permission-mode", "ai-title", "progress", "agent-name":
+			// Bookkeeping records Claude writes for itself: the mid-turn
+			// prompt queue, file-backup snapshots, the resume prompt, the
+			// permission mode, the auto-generated session title, streaming
+			// hook and sub-agent progress markers, and sub-agent names.
+			// None of it is conversation content. The queue-operation
+			// records (enqueue, dequeue, popAll, remove) carry no uuid and
+			// are not part of the conversation tree — they track the queue
+			// as the user edits it. When a queued prompt is actually sent,
+			// Claude writes it as a queued_command attachment that does
+			// carry a uuid and is replied to, and the attachment branch
+			// above surfaces it. The sub-agent turns likewise arrive as
+			// ordinary user and assistant records flagged isSidechain, and
+			// the title already rides on the conversation from session
+			// metadata. We drop them. ai-title and progress are written
+			// many times per session, so leaving them off this list would
+			// surface hundreds of near-identical UnknownBlock entries.
 		default:
 			// We do not know this record type. The resilience rule
 			// says to keep it visible, so we wrap the original line
@@ -258,7 +308,20 @@ type rawRecord struct {
 	IsMeta      bool            `json:"isMeta"`
 	IsSidechain bool            `json:"isSidechain"`
 	Message     json.RawMessage `json:"message"`
-	line        string
+
+	// The fields below appear only on the non-conversation record
+	// types. Subtype tells the system branch which kind of system
+	// note this is. Content is the top-level prose string a system
+	// record carries (it is distinct from the message.content array
+	// on user and assistant records). Attachment is the nested object
+	// on attachment records. Each stays as raw JSON or a plain field
+	// so the common decode in parseStream pays nothing for records
+	// that do not use them.
+	Subtype    string          `json:"subtype"`
+	Content    json.RawMessage `json:"content"`
+	Attachment json.RawMessage `json:"attachment"`
+
+	line string
 }
 
 // userBody and assistantBody are the two shapes the embedded message
@@ -350,6 +413,125 @@ func parseAssistantRecord(record rawRecord, ts time.Time) contracts.Message {
 	}
 }
 
+// parseSystemRecord rescues the away_summary subtype from the system
+// records and reports false for every other subtype so the caller
+// drops it. The summary is prose Claude authored, so the message
+// takes the assistant role. We leave IsMeta false for two reasons.
+// It matches Claude's own isMeta:false on these records, and it keeps
+// the summary visible by default. The HideAwaySummaries flag drops it.
+func parseSystemRecord(record rawRecord, ts time.Time) (contracts.Message, bool) {
+	if record.Subtype != "away_summary" {
+		return contracts.Message{}, false
+	}
+	text := decodeContentString(record.Content)
+	if text == "" {
+		return contracts.Message{}, false
+	}
+	return contracts.Message{
+		ID:        contracts.MessageID(record.UUID),
+		ParentID:  contracts.MessageID(record.ParentUUID),
+		Role:      contracts.RoleAssistant,
+		Timestamp: ts,
+		Blocks:    []contracts.Block{contracts.AwaySummaryBlock{Text: text}},
+	}, true
+}
+
+// parseAttachmentRecord rescues the two attachment inner types that
+// carry conversation content and reports false for every other inner
+// type so the caller drops it. The record has a uuid and a parentUuid
+// like a user or assistant record, so it threads into the conversation
+// the same way.
+//
+// A queued_command attachment is a prompt the user typed into the
+// queue while the assistant was working and then sent. Claude writes
+// it as the committed form of that prompt — the assistant's next reply
+// links back to it by parentUuid — so it is a real user turn, and we
+// surface it as one. The commandMode tells a sent prompt ("prompt")
+// apart from a background task notification ("task-notification"),
+// which is machine-generated markup we drop.
+//
+// A file-context attachment ("file", "edited_text_file", or
+// "selected_lines_in_ide") is a file the editor attached to a turn as
+// context for the assistant. The three store their text in different
+// places — a whole file under content.file.content, an edit snapshot
+// under snippet, an editor selection under content — so we read the
+// right field per type and fold them into one FileContextBlock. These
+// take the system role, not the user role, because the editor attaches
+// them on its own. The user did not type them, and labeling them as a
+// user turn would read as if they had.
+func parseAttachmentRecord(record rawRecord, ts time.Time) (contracts.Message, bool) {
+	var a struct {
+		Type        string          `json:"type"`
+		Filename    string          `json:"filename"`
+		Snippet     string          `json:"snippet"`
+		Content     json.RawMessage `json:"content"`
+		Prompt      string          `json:"prompt"`
+		CommandMode string          `json:"commandMode"`
+	}
+	decodeOrZero(record.Attachment, &a)
+
+	if a.Type == "queued_command" {
+		if a.CommandMode != "prompt" || a.Prompt == "" {
+			return contracts.Message{}, false
+		}
+		return contracts.Message{
+			ID:        contracts.MessageID(record.UUID),
+			ParentID:  contracts.MessageID(record.ParentUUID),
+			Role:      contracts.RoleUser,
+			Timestamp: ts,
+			Blocks:    []contracts.Block{contracts.TextBlock{Text: a.Prompt}},
+		}, true
+	}
+
+	if a.Filename == "" {
+		return contracts.Message{}, false
+	}
+	var content string
+	switch a.Type {
+	case "file":
+		// content is {type, file:{filePath, content, numLines}}.
+		var c struct {
+			File struct {
+				Content string `json:"content"`
+			} `json:"file"`
+		}
+		decodeOrZero(a.Content, &c)
+		content = c.File.Content
+	case "edited_text_file":
+		content = a.Snippet
+	case "selected_lines_in_ide":
+		// content is a plain string of the highlighted lines.
+		content = decodeContentString(a.Content)
+	default:
+		return contracts.Message{}, false
+	}
+
+	return contracts.Message{
+		ID:        contracts.MessageID(record.UUID),
+		ParentID:  contracts.MessageID(record.ParentUUID),
+		Role:      contracts.RoleSystem,
+		Timestamp: ts,
+		Blocks:    []contracts.Block{contracts.FileContextBlock{Path: a.Filename, Content: content}},
+	}, true
+}
+
+// decodeContentString reads a content field that Claude stores as a
+// plain JSON string — the prose on an away_summary system record and
+// the highlighted text on a selected_lines_in_ide attachment. We keep
+// it as raw JSON and decode it here so a future Claude release that
+// writes a non-string content cannot break the surrounding decode and
+// lose the record's type and timestamp. A non-string value simply
+// leaves the result empty, and the caller treats an empty result as
+// "nothing to surface."
+func decodeContentString(raw json.RawMessage) string {
+	if len(raw) == 0 || raw[0] != '"' {
+		return ""
+	}
+	var s string
+	decodeOrZero(raw, &s)
+	return s
+}
+
 // decodeUserContent handles the two shapes Claude writes for user
 // content. A simple text prompt comes in as a plain string, like
 // "How do I read a file?". A richer message comes in as an array
@@ -427,10 +609,24 @@ func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 		return contracts.TextBlock{Text: v.Text}, true
 	case "thinking":
 		var v struct {
-			Thinking string `json:"thinking"`
+			Thinking  string `json:"thinking"`
+			Signature string `json:"signature"`
 		}
 		decodeOrZero(raw, &v)
-		return contracts.ThinkingBlock{Text: v.Thinking}, true
+		if v.Thinking == "" && v.Signature == "" {
+			// No readable text and no encrypted signature: no
+			// reasoning was recorded, so there is nothing to show.
+			// Drop the block rather than render an empty quote.
+			return nil, false
+		}
+		// An empty text with a signature is Claude's "omitted"
+		// thinking: the reasoning is encrypted in the signature, so
+		// flag it and let the renderer mark it rather than draw a
+		// blank quote.
+		return contracts.ThinkingBlock{
+			Text:      v.Thinking,
+			Encrypted: v.Thinking == "",
+		}, true
 	case "tool_use":
 		var v struct {
 			ID    string          `json:"id"`
@@ -465,6 +661,23 @@ func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 			ref = fmt.Sprintf("base64:%d bytes", len(v.Source.Data))
 		}
 		return contracts.ImageBlock{MIME: v.Source.MediaType, PathOrInlineRef: ref}, true
+	case "document":
+		// Same base64 source shape as an image. We surface a reference
+		// rather than the bytes, so a transcript never carries a whole
+		// base64 PDF inline.
+		var v struct {
+			Source struct {
+				Type      string `json:"type"`
+				MediaType string `json:"media_type"`
+				Data      string `json:"data"`
+			} `json:"source"`
+		}
+		decodeOrZero(raw, &v)
+		ref := v.Source.Type
+		if v.Source.Data != "" {
+			ref = fmt.Sprintf("base64:%d bytes", len(v.Source.Data))
+		}
+		return contracts.DocumentBlock{MIME: v.Source.MediaType, PathOrInlineRef: ref}, true
 	default:
 		return contracts.UnknownBlock{Kind: head.Type, Raw: raw}, true
 	}
@@ -474,10 +687,17 @@ func decodePart(raw json.RawMessage) (contracts.Block, bool) {
 // result and returns it as a single string. Claude writes this
 // content in two different shapes depending on which tool produced
 // the result. Some tools write a plain string. Others write an
-// array of small parts that look like {type:"text", text:"..."}.
-// The rest of chronicle only ever works with one string per
-// result, so this helper picks whichever shape was used and turns
-// it into that string.
+// array of small parts: a {type:"text", text:"..."} part for textual
+// output, plus non-text parts for an image the tool returned
+// ({type:"image", source:{...}}) or another tool it referenced
+// ({type:"tool_reference", tool_name:"..."}).
+//
+// Text parts contribute their text. A non-text part contributes a
+// short bracketed reference on its own line rather than nothing, so
+// a result made only of images or references still shows what came
+// back instead of rendering as an empty block. An unfamiliar part
+// keeps a trace of its type, the same resilience rule the block
+// decoder follows.
 func flattenToolResultContent(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -488,17 +708,57 @@ func flattenToolResultContent(raw json.RawMessage) string {
 		return s
 	}
 	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		ToolName string `json:"tool_name"`
+		Source   struct {
+			MediaType string `json:"media_type"`
+			Data      string `json:"data"`
+		} `json:"source"`
 	}
 	if err := json.Unmarshal(raw, &parts); err != nil {
 		return string(raw)
 	}
-	var out string
+	var out strings.Builder
 	for _, p := range parts {
-		if p.Type == "text" {
-			out += p.Text
+		switch p.Type {
+		case "text":
+			out.WriteString(p.Text)
+		case "image":
+			writeResultPartRef(&out, "image: "+imageResultRef(p.Source.MediaType, p.Source.Data))
+		case "tool_reference":
+			writeResultPartRef(&out, "tool reference: "+p.ToolName)
+		default:
+			writeResultPartRef(&out, p.Type)
 		}
 	}
-	return out
+	return out.String()
+}
+
+// writeResultPartRef appends a bracketed reference for a non-text
+// tool-result part on its own line, so it never jams against text
+// output on either side regardless of the order the parts arrive in.
+// It opens a line when the builder is mid-line and closes one after
+// the reference.
+func writeResultPartRef(out *strings.Builder, label string) {
+	s := out.String()
+	if len(s) > 0 && !strings.HasSuffix(s, "\n") {
+		out.WriteByte('\n')
+	}
+	out.WriteByte('[')
+	out.WriteString(label)
+	out.WriteString("]\n")
+}
+
+// imageResultRef renders a compact, byte-free reference to an image
+// a tool returned, mirroring how ImageBlock surfaces a reference
+// instead of inlining the base64 payload into the transcript.
+func imageResultRef(mediaType, data string) string {
+	if mediaType == "" {
+		mediaType = "image"
+	}
+	if data != "" {
+		return fmt.Sprintf("%s · base64:%d bytes", mediaType, len(data))
+	}
+	return mediaType
 }

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/danieljbfz/chronicle/contracts"
 )
@@ -91,6 +92,45 @@ func TestResumeCommand_fallsBackToFolderDecodeWhenNoCwd(t *testing.T) {
 	}
 	if plan.WorkingDir != "/tmp/fixture" {
 		t.Errorf("working dir = %q, want /tmp/fixture (folder-decode fallback)", plan.WorkingDir)
+	}
+}
+
+// TestResumeCommand_fallsBackWhenStreamBreaksBeforeCwd proves
+// the cwd scan terminates on a record it cannot decode. A header
+// record carrying no cwd is followed by one truncated mid-write —
+// the shape a session file takes when it is read while Claude is
+// still appending to it. json.Decoder cannot advance past the
+// broken value and returns the same error on every later call, so
+// the old loop spun forever. The scan must instead stop and report
+// no cwd, which sends ResumeCommand to the folder-name fallback.
+// The call runs in a goroutine guarded by a timeout so a
+// regression surfaces as a failure rather than a hung suite.
+func TestResumeCommand_fallsBackWhenStreamBreaksBeforeCwd(t *testing.T) {
+	truncated := []byte(`{"type":"summary"}` + "\n" + `{"type":"user","cwd`)
+	fsys := fstest.MapFS{
+		"projects/-tmp-fixture/" + validUUID + ".jsonl": {Data: truncated},
+	}
+
+	type result struct {
+		plan contracts.ResumePlan
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		plan, err := New().ResumeCommand(fsys, contracts.SessionID(validUUID))
+		done <- result{plan, err}
+	}()
+
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if got.plan.WorkingDir != "/tmp/fixture" {
+			t.Errorf("working dir = %q, want /tmp/fixture (folder-decode fallback)", got.plan.WorkingDir)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ResumeCommand did not return: the cwd scan looped on a record it could not decode")
 	}
 }
 

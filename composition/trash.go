@@ -261,10 +261,19 @@ func (a *App) TrashRestore(id string) error {
 	}
 
 	// Step 1: pre-flight every destination. If any one already
-	// exists, abort before we move anything.
+	// exists, abort before we move anything. A stat that fails for
+	// any reason other than "not found" leaves us unable to prove
+	// the destination is clear, so we abort then too rather than
+	// move on a guess — the whole point of the pre-flight is to
+	// avoid a partial restore where earlier items move and a later
+	// one fails.
 	for _, item := range entry.Items {
-		if _, err := os.Lstat(item.OriginalPath); err == nil {
+		_, err := os.Lstat(item.OriginalPath)
+		if err == nil {
 			return fmt.Errorf("trash restore: destination already exists: %s", item.OriginalPath)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("trash restore: check destination %s: %w", item.OriginalPath, err)
 		}
 	}
 

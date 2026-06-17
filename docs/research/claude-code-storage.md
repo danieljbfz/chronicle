@@ -1,6 +1,16 @@
 # Claude Code local storage
 
-This document is the authoritative reference for Claude Code's on-disk layout. Every cleanup heuristic in `adapters/claude/` traces back to a row in here. Findings are dated 2026-05-15 and were gathered through three rounds of research (web, official docs, GitHub issues, source inspection of upstream and similar tools) plus direct inspection of a real Claude Code 2.1.x install.
+This document is the authoritative reference for Claude Code's on-disk layout. Every cleanup heuristic in `adapters/claude/` traces back to a row in here. The findings are a 2026-05-15 snapshot of the official docs, the upstream issue tracker, and a real Claude Code 2.1.x install.
+
+## Contents
+
+- [The top-level layout](#the-top-level-layout)
+- [The encoded-cwd encoding](#the-encoded-cwd-encoding)
+- [Files in detail](#files-in-detail)
+- [Claude's built-in auto-cleaner: `cleanupPeriodDays`](#claudes-built-in-auto-cleaner-cleanupperioddays)
+- [Cross-reference cascade-delete map](#cross-reference-cascade-delete-map)
+- [Existing third-party cleaners](#existing-third-party-cleaners)
+- [Sources](#sources)
 
 ## The top-level layout
 
@@ -73,7 +83,7 @@ The session companion directory. Materialized lazily — exists only when the se
 
 **Bug worth knowing:** Issue [#59248](https://github.com/anthropics/claude-code/issues/59248), still open as of v2.1.141, reports that Claude's auto-cleaner deletes the parent `.jsonl` but leaves the `<sessionId>/` companion directory orphaned. On a real install this can accumulate to tens of megabytes per project.
 
-**Cleanup:** Cascade-deleted with the session. Chronicle currently does not include this in its cascade map — **this is a gap**. Adding it is one new line in `adapters/claude/cleanup.go`.
+**Cleanup:** Cascade-deleted with the session. `adapters/claude/cleanup.go` adds the companion directory to the delete plan, and `orphans.go` flags it when the `.jsonl` is already gone.
 
 ### `projects/<encoded-cwd>/memory/` — per-project auto-memory
 
@@ -85,9 +95,9 @@ Per the [official memory documentation](https://code.claude.com/docs/en/memory),
 
 **This is user-facing content the user can edit, but they did not author it.** Treat it as precious-by-default. Deleting it loses Claude's accumulated project knowledge with no undo.
 
-**Stale memory is a real problem.** A user who notices Claude loading outdated information at every session start may want a way to inspect, edit, or selectively prune memory files. This is a feature gap — chronicle could surface a `chronicle memory list/view/delete` workflow that lets the user manage these files without rummaging the filesystem manually.
+**Stale memory is a real problem.** A user who notices Claude loading outdated information at every session start wants a way to inspect, edit, or selectively prune memory files. `chronicle memory list/show/edit/clean` is that workflow — it manages these files without rummaging the filesystem by hand.
 
-**Cleanup:** Chronicle never auto-deletes memory. If a `chronicle memory` workflow lands later, it will be opt-in and per-file.
+**Cleanup:** Chronicle never auto-deletes memory. `chronicle memory clean` is opt-in and moves files to the recoverable trash rather than removing them.
 
 ### `file-history/<sessionId>/` — versioned file backups
 
@@ -157,7 +167,7 @@ No evidence of auto-trimming. Grows forever.
 
 ### `ide/<pid>.lock` — IDE integration locks
 
-Lock and socket files for the VS Code and JetBrains extensions. Active locks belong to running processes; stale ones are leftover from crashes.
+Lock and socket files for the VS Code and JetBrains extensions. Active locks belong to running processes. Stale ones are left over from crashes.
 
 **Cleanup:** Chronicle never touches these today. A future "deep clean" pass could check the PID for liveness before removing.
 
@@ -209,17 +219,14 @@ Claude has a built-in cleaner. Chronicle is not the primary janitor. Chronicle c
 2. **The user wants to clean *now*** instead of waiting for the next Claude restart.
 3. **The user wants to clean by reference (orphan-status)** instead of by age. A session deleted manually yesterday should have its sibling artifacts removed today, not in 30 days.
 
-These are real use cases, but they justify a smaller scope for chronicle's cleanup than I originally planned. The `chronicle clean` commands are correct as-is. The forward-looking work is to:
-
-- Make the cascade map complete (add the missing `<sessionId>/` directory).
-- Add a `chronicle memory` workflow for inspecting and selectively pruning the auto-memory files.
+These are real use cases, and chronicle's `clean` commands cover them. The cascade and orphan scans follow the sibling references — including the `<sessionId>/` companion directory — and `chronicle memory` inspects and selectively prunes the auto-memory files.
 
 ## Cross-reference cascade-delete map
 
 When chronicle deletes a session, the full set of paths to remove is:
 
 1. `projects/<encoded-cwd>/<sessionId>.jsonl` — the session itself
-2. `projects/<encoded-cwd>/<sessionId>/` — the companion directory **(GAP — chronicle does not yet handle)**
+2. `projects/<encoded-cwd>/<sessionId>/` — the companion directory of subagents and tool results
 3. `file-history/<sessionId>/` — versioned file backups
 4. `tasks/<sessionId>/` — task state
 5. `session-env/<sessionId>` — captured environment
@@ -227,7 +234,7 @@ When chronicle deletes a session, the full set of paths to remove is:
 
 `history.jsonl` entries with the matching `sessionId` would also need rewriting, but chronicle does not touch `history.jsonl` because partial JSONL rewrites are a different kind of operation than file moves.
 
-## Existing third-party cleaners (for reference)
+## Existing third-party cleaners
 
 | Tool | Approach |
 |---|---|

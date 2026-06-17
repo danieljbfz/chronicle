@@ -66,24 +66,32 @@ func TestProvider_ListProjects(t *testing.T) {
 	}
 }
 
-// TestProvider_ListSessions_sortedNewestFirst pins the sort order:
-// sessions whose last activity is more recent come first in the
-// listing. The user interface depends on this ordering to put the
-// session the user is most likely to want at the top of the list.
-func TestProvider_ListSessions_sortedNewestFirst(t *testing.T) {
+// TestProvider_ListSessionRefs_enumeratesAndSummarizes confirms the
+// cheap enumeration returns one ref per session with a usable id and
+// locator, and that summarizing each ref yields a summary for the same
+// session. The composition layer relies on this split to cache the
+// summaries and parse only the sessions whose files changed.
+func TestProvider_ListSessionRefs_enumeratesAndSummarizes(t *testing.T) {
 	p := New()
 	fsys := buildFS(t)
-	summaries, err := p.ListSessions(fsys, "-Users-test-proj")
+	refs, err := p.ListSessionRefs(fsys, "-Users-test-proj")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(summaries) != 2 {
-		t.Fatalf("got %d sessions, want 2", len(summaries))
+	if len(refs) != 2 {
+		t.Fatalf("got %d refs, want 2", len(refs))
 	}
-	if !summaries[0].LastActive.After(summaries[1].LastActive) &&
-		!summaries[0].LastActive.Equal(summaries[1].LastActive) {
-		t.Errorf("sessions should be sorted newest-first: %v then %v",
-			summaries[0].LastActive, summaries[1].LastActive)
+	for _, ref := range refs {
+		if ref.ID == "" || ref.Locator == "" {
+			t.Fatalf("ref missing id or locator: %+v", ref)
+		}
+		summary, err := p.SummarizeSession(fsys, ref)
+		if err != nil {
+			t.Fatalf("summarize %s: %v", ref.ID, err)
+		}
+		if summary.ID != ref.ID {
+			t.Fatalf("summary id %q != ref id %q", summary.ID, ref.ID)
+		}
 	}
 }
 

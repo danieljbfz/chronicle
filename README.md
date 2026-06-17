@@ -2,12 +2,27 @@
 
 A local tool for browsing, exporting, and cleaning the on-disk history that AI coding assistants leave behind. Multi-provider by design: works with Claude Code, the GitHub Copilot Chat extension, and the GitHub Copilot agent runtime today, ready for any tool with a similar layout.
 
-Status: under active development. See `docs/superpowers/specs/2026-05-15-chronicle-design.md` for the design contract and `SKILL_PROMPT.md` for the engineering bar.
+Status: under active development. See [`docs/codebase-tour.md`](docs/codebase-tour.md) for the architecture and [`docs/README.md`](docs/README.md) for the full documentation set.
+
+## Contents
+
+- [Install](#install-from-source-during-development)
+- [What chronicle covers](#what-chronicle-covers)
+  - [Browse and inspect](#browse-and-inspect)
+  - [Export and copy](#export-and-copy)
+  - [Resume](#resume)
+  - [Manage memory](#manage-memory)
+  - [Clean](#clean)
+  - [Trash](#trash)
+  - [Configure chronicle itself](#configure-chronicle-itself)
+- [Provider capability matrix](#provider-capability-matrix)
+- [Recognized storage versions](#recognized-storage-versions)
+- [Help](#help)
 
 ## Install (from source, during development)
 
 ```bash
-go build -o chronicle ./cmd/chronicle
+  go build -o chronicle ./cmd/chronicle
 ./chronicle doctor
 ```
 
@@ -30,11 +45,11 @@ Every command runs read-only by default. Anything destructive defaults to dry-ru
 - `chronicle export --bulk <projectId> -o <directory>` — write one Markdown file per session, named with the session date. Streams through the renderer without holding all sessions in memory.
 - `chronicle copy <sessionId>` — copy the same transcript to the clipboard via OSC 52.
 
-Filter flags shared across export and copy: `--no-tools`, `--no-thinking`, `--no-meta`.
+Filter flags on `export`: `--no-tools`, `--no-thinking`, `--no-meta`, and two for the records chronicle rescues from Claude's non-conversation lines — `--no-away-summaries` (step-away session summaries) and `--no-files` (attached, edited, and selected file content). `copy` shares `--no-tools` and `--no-thinking`.
 
 ### Resume
 
-- `chronicle resume <session-id>` — re-open the session in its original tool, in the original working directory. Provider-aware (Claude only today; Copilot returns a clear "this provider does not support resume" message because Copilot Chat lives inside VS Code with no external API).
+- `chronicle resume <session-id>` — re-open the session in its original tool, in the original working directory. The support is provider-aware. Claude can resume today. Copilot returns a clear "this provider does not support resume" message, because Copilot Chat lives inside VS Code with no external API.
 
 ### Manage memory
 
@@ -56,7 +71,7 @@ Each subcommand finds one kind of cruft and (with `--apply`) moves it into the t
 
 ### Trash
 
-- `chronicle trash list` — list recoverable entries currently in the trash.
+- `chronicle trash list` — list the recoverable entries in the trash.
 - `chronicle trash restore <entry-id>` — move one trashed entry back to its original location.
 - `chronicle trash empty [--force]` — permanently remove entries past the retention window. With `--force`, removes everything regardless of age.
 
@@ -89,7 +104,7 @@ GitHub markets several products under the umbrella name "Copilot." Chronicle mod
 | GitHub Copilot Chat | `copilot-3` | `2e10591741e1` | 2026-05-15 (VS Code with chat schema v3) |
 | GitHub Copilot agent | `copilot-agent-1` | (no fingerprint yet) | 2026-05-15 (`@github/copilot-sdk` LocalSessionManager) |
 
-If `chronicle doctor` shows `Version: unknown`, the fingerprint did not match the table above. The tool still works in read-only mode — the resilience contract is documented in `docs/research/07-schema-resilience.md`.
+If `chronicle doctor` shows `Version: unknown`, the fingerprint did not match the table above. The tool still works in read-only mode — the resilience contract is documented in `docs/research/schema-resilience.md`.
 
 ## Help
 

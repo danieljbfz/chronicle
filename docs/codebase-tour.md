@@ -2,32 +2,56 @@
 
 A walkthrough of every package in chronicle, what each file does, and how they fit together. Read this once cover to cover and the rest of the source should make sense at a glance.
 
+## Contents
+
+- [The thirty-second summary](#the-thirty-second-summary)
+- [Architecture](#architecture)
+- [Repository layout](#repository-layout)
+- [File-by-file walkthrough](#file-by-file-walkthrough)
+  - [`contracts/`](#contracts)
+  - [`adapters/`](#adapters)
+  - [`steps/`](#steps)
+  - [`composition/`](#composition)
+  - [`internal/`](#internal)
+  - [`cmd/chronicle/`](#cmdchronicle)
+  - [`cmd/chronicle/tui/`](#cmdchronicletui)
+- [The terminal UI](#the-terminal-ui)
+- [The dependency graph](#the-dependency-graph)
+- [How a request flows through the system](#how-a-request-flows-through-the-system)
+- [How `fs.FS` makes the test suite cheap](#how-fsfs-makes-the-test-suite-cheap)
+- [The resilience contract in one breath](#the-resilience-contract-in-one-breath)
+- [How to add a new provider](#how-to-add-a-new-provider)
+
 ## The thirty-second summary
 
-Chronicle is a Go program. You build it with `go build -o chronicle ./cmd/chronicle`. The binary reads the on-disk history of AI coding assistants (only Claude Code today, more coming) and lets you list sessions, export them as Markdown, copy them to the clipboard, and inspect what chronicle found with the `doctor` command.
+Chronicle is a Go program. You build it with `go build -o chronicle ./cmd/chronicle`. The binary reads the on-disk history that AI coding assistants leave behind — Claude Code and two GitHub Copilot products today — and lets you browse, search, export, and clean that history. Running `chronicle` with no arguments opens an interactive terminal UI. Every subcommand (`list`, `export`, `stats`, `doctor`, `clean`, and the rest) is the scripting surface.
 
-The architecture follows the Hexagonal pattern, also called Ports and Adapters or Onion. The vocabulary maps cleanly to our packages.
+The architecture follows the Hexagonal pattern, also called Ports and Adapters or Onion. The vocabulary maps cleanly to the packages.
 
 | Concept | Where it lives |
 |---|---|
-| The port for read-only operations | `contracts/Provider` |
-| The optional port for destructive operations | `contracts/Cleaner` |
-| The adapters (one per upstream tool) | `adapters/claude/`, `adapters/copilotchat/`, `adapters/copilotagent/`, future `adapters/cursor/`, ... |
+| The port for read-only operations | `contracts.Provider` |
+| The optional capability ports | `contracts.Cleaner`, `MemoryStore`, `GlobalMemoryStore`, `GlobalConfig`, `Resumable` |
+| The adapters (one per upstream tool) | `adapters/claude/`, `adapters/copilotchat/`, `adapters/copilotagent/` |
+| The pure transforms (filter, render, search, fingerprint) | `steps/` |
 | The application core (orchestrates the adapters) | `composition/` |
-| The pure transforms (filter, render, fingerprint) | `steps/` |
-| The driving sides (the CLI today, TUI and web later) | `cmd/chronicle/` |
+| The driving sides (the CLI and the TUI) | `cmd/chronicle/` |
 
-The `Provider` interface covers everything a read-only chronicle install needs. Optional capability interfaces (`Cleaner`, `MemoryStore`, `GlobalMemoryStore`, `GlobalConfig`, `Resumable`) layer destructive or tool-specific operations on top. Adapters implement whichever optional interfaces match their upstream tool. The Claude adapter implements all of them today. The Copilot Chat adapter implements `Cleaner`. The Copilot agent adapter is read-only for now. Composition uses a type assertion (`if c, ok := provider.(Cleaner); ok`) to find which adapters support each optional capability. This keeps the base contract small and makes every destructive surface visible in the type system: any code that touches a capability interface is doing something the read-only contract did not allow.
+## Architecture
 
-The strict rule is that imports only ever flow downhill. The contracts package is a leaf and depends on nothing inside chronicle. The adapters depend on contracts. The steps depend on contracts. Composition depends on adapters and steps. The CLI depends on composition. Nothing ever flows the other way.
+The `Provider` interface covers everything a read-only chronicle install needs — detect the storage, list projects, list sessions, read one session. Five optional capability interfaces layer the destructive and tool-specific operations on top: `Cleaner` (delete sessions, scan for orphans), `MemoryStore` and `GlobalMemoryStore` (per-project and user-global memory files), `GlobalConfig` (stale entries in a tool's global config file), and `Resumable` (re-open a session in its original tool).
+
+Adapters implement whichever optional interfaces match their upstream tool. The Claude adapter implements all five. The Copilot Chat adapter implements `Cleaner`. The Copilot agent adapter is read-only. Composition discovers each capability with a type assertion (`if c, ok := provider.(contracts.Cleaner); ok`). This keeps the base contract small and makes every destructive surface visible in the type system: any code that touches a capability interface is doing something the read-only contract does not allow.
+
+The strict rule is that imports only ever flow downhill. The contracts package is a leaf and depends on nothing inside chronicle. The adapters depend on contracts. The steps depend on contracts. Composition depends on adapters and steps. The binary depends on composition. Nothing ever flows the other way.
 
 ## Repository layout
 
 ```
 chronicle/
-├── cmd/chronicle/        the binary's main package and CLI subcommands
+├── cmd/chronicle/        the binary's main package, CLI subcommands, and the TUI
 ├── adapters/             one folder per upstream tool, plus the registry
-│   ├── all.go            the registry — one line per provider
+│   ├── all.go            the registry — one entry per provider
 │   ├── claude/           the Claude Code adapter
 │   ├── copilotchat/      the VS Code Copilot Chat extension adapter
 │   └── copilotagent/     the @github/copilot-sdk runtime adapter
@@ -37,19 +61,19 @@ chronicle/
 │   ├── config/           TOML config loader
 │   └── paths/            XDG path resolver
 ├── steps/                pure transforms over the contract types
-├── docs/                 design spec, research, this tour, the Go primer
+├── docs/                 this tour, the Go primer, the roadmap, and research
 └── README.md             the user-facing readme
 ```
 
 A few things worth noticing:
 
-- The folders sit directly under the repo root. Idiomatic Go puts packages at the module root rather than under a `src/` directory. The standard library, kubernetes, prometheus, and most well-known Go projects do the same. The import path for a package is its folder path, so `src/contracts` would just become noise in every import line.
-- The `internal/` folder is special. The Go compiler enforces that anything inside an `internal/` directory can only be imported by code in the same module. That makes `internal/paths` and `internal/config` private to chronicle by guarantee, not by convention.
-- The `cmd/<binary-name>/` convention is the Go standard for "this is where the main package lives." If chronicle ever ships a second binary (say a server), it would land at `cmd/chronicle-server/`.
+- The folders sit directly under the repo root. Idiomatic Go puts packages at the module root rather than under a `src/` directory. The import path for a package is its folder path, so a `src/` prefix would be noise in every import line.
+- The `internal/` folder is special. The Go compiler enforces that anything inside an `internal/` directory can only be imported by code in the same module, which makes `internal/paths` and `internal/config` private to chronicle by guarantee, not by convention.
+- The `cmd/<binary-name>/` convention is the Go standard for where a main package lives. A second binary would land at its own `cmd/<name>/`.
 
 ## File-by-file walkthrough
 
-Each row below is one Go file with a one-line description of its job.
+Each row below is one Go file with a one-line description of its job. Test files (`*_test.go`) sit next to the file they cover and are omitted from the tables.
 
 ### `contracts/`
 
@@ -57,93 +81,87 @@ The leaf layer. Pure types, no I/O, no imports of any other chronicle package.
 
 | File | Job |
 |---|---|
-| `ids.go` | The named identifier types (`ProjectID`, `SessionID`, `MessageID`) and the `Role` constants. |
-| `block.go` | The `Block` interface and its concrete implementations (`TextBlock`, `ThinkingBlock`, `ToolUseBlock`, `ToolResultBlock`, `ImageBlock`, `UnknownBlock`). |
-| `message.go` | The `Message` struct that represents one turn in a conversation. |
+| `ids.go` | The named identifier types (`ProjectID`, `SessionID`, `MessageID`) and the `Role` constants (`RoleUser`, `RoleAssistant`, `RoleSystem`). |
+| `block.go` | The `Block` interface and its concrete kinds: `TextBlock`, `ThinkingBlock`, `ToolUseBlock`, `ToolResultBlock`, `ImageBlock`, `DocumentBlock`, `FileContextBlock`, `AwaySummaryBlock`, and `UnknownBlock`. |
+| `message.go` | The `Message` struct: one turn, carrying its blocks plus the `IsMeta`, `IsSidechain`, and `Model` metadata the filter step reads. |
 | `conversation.go` | The `Conversation` struct plus the `FirstUserPrompt` and `IsAbandoned` helpers. |
-| `storage_version.go` | The `StorageVersion` and `Capabilities` structs that adapters use to advertise what they understand about the storage they detected. |
-| `project.go` | The `Project` and `SessionSummary` structs used by listing pages. |
-| `delete_plan.go` | The `DeletePlan` and `DeleteItem` structs the cleanup feature will use. |
-| `provider.go` | The `Provider` interface every adapter has to satisfy plus the optional `Cleaner` interface. The two architectural seams. |
-| `provider_test.go` | Compile-time checks proving a stub type satisfies `Provider` alone, and a separate stub satisfies both `Provider` and `Cleaner`. |
-| `block_test.go` | A compile-time check that every block type satisfies the `Block` interface, plus pin-down tests for the `Role` constants. |
-| `conversation_test.go` | Behaviour tests for `FirstUserPrompt` and `IsAbandoned`. |
+| `listing_title.go` | `Conversation.ListingTitle`, the cascade that always returns a recognizable label for a listing row even when a session opens with no real user text. |
+| `project.go` | The `Project` struct used by the project-listing surfaces. |
+| `session_ref.go` | The `SessionRef` parse-free handle a provider returns from `ListSessionRefs`, carrying a session's identifiers, on-disk size, and modification time without reading its content. |
+| `session_summary.go` | The `SessionSummary` listing view and `NewSessionSummary`, the one place that maps a parsed `Conversation` plus its `SessionRef` into a summary. |
+| `storage_version.go` | The `StorageVersion` and `Capabilities` structs adapters use to advertise what they understood about the storage they detected. |
+| `delete_plan.go` | The `DeletePlan` and `DeleteItem` structs the cleanup feature produces. |
+| `provider.go` | The required `Provider` interface plus the optional `Cleaner` interface. |
+| `memory.go` | The optional `MemoryStore` and `GlobalMemoryStore` interfaces and the `MemoryFile` value they return. |
+| `global_config.go` | The optional `GlobalConfig` interface for stale entries in a tool's global config file. |
+| `resume.go` | The optional `Resumable` interface and the `ResumePlan` it returns. |
 
 ### `adapters/`
 
-One folder per upstream tool, plus a registry that ties them all together.
+One folder per upstream tool, plus a registry that ties them together.
 
 | File | Job |
 |---|---|
-| `all.go` | The provider registry. The `All()` function returns one `Factory` per provider. Adding a new tool to chronicle is a one-line edit here plus a new sibling folder. The Copilot factory returns one `Entry` per detected install (regular VS Code, VS Code Insiders), so `Factory` returns a slice instead of a single `Entry`. |
+| `all.go` | The provider registry. `All()` returns one `Factory` per provider, and adding a tool to chronicle is one entry here plus a sibling folder. A factory returns one `Entry` per detected install, so a provider that ships in several variants (regular VS Code, VS Code Insiders) registers each one. |
 
-### `adapters/claude/`
+#### `adapters/claude/`
 
-The Claude Code adapter. Reads `~/.claude` and turns its JSONL session files into normalized `Conversation` values.
-
-| File | Job |
-|---|---|
-| `doc.go` | The package-level documentation. Describes the directory layout under `~/.claude` and what the package implements today. |
-| `detect.go` | Storage version detection. Walks the projects directory, reads up to two hundred records from the first session file, and computes a fingerprint. Maps known fingerprints to internal version names like `claude-1.0`. |
-| `parse.go` | The JSONL parser. Reads one session file end to end and produces a `Conversation`. Handles every kind of record and every kind of content block. Preserves anything it does not recognize as an `UnknownBlock`. |
-| `provider.go` | The `Provider` implementation. Implements `Name`, `Detect`, `ListProjects`, `ListSessions`, `ReadSession`. |
-| `cleanup.go` | The `Cleaner` implementation. `PlanDelete` returns the cascade plan for one session (the `.jsonl` plus `file-history/`, `tasks/`, `session-env/`, and `sessions/` siblings). `PlanOrphanScan` finds sibling files whose owning session no longer exists. |
-| `errors.go` | The typed `Error` value the package returns from every public function. Carries `Op`, `Path`, and `Err` fields, supports `errors.Is` and `errors.As`. |
-| `detect_test.go` | Behaviour tests for the detection logic, against in-memory fixtures. |
-| `parse_test.go` | Behaviour tests for the parser, including the resilience canary. |
-| `provider_test.go` | Behaviour tests for the `Provider` implementation against a hand-built fake filesystem, plus the test that confirms `*Provider` satisfies `contracts.Cleaner`. |
-| `cleanup_test.go` | Behaviour tests for the cascade map: every sibling cascades, missing siblings are dropped silently, and orphan-scanning produces the right set. |
-| `errors_test.go` | Behaviour tests for the typed error: format, `Unwrap`, `errors.Is`, `errors.As`. |
-| `testdata/v1_0/` | Real-shape session fixtures used by the parser and provider tests. |
-| `testdata/synthetic_future.jsonl` | The canary fixture. Contains an unknown record type and an unknown content kind. The test that consumes it asserts both survive parsing as `UnknownBlock` values. |
-| `testdata/README.txt` | Human-readable explanation of every fixture and what it tests. |
-
-### `adapters/copilotchat/`
-
-The VS Code Copilot Chat extension adapter. Reads `workspaceStorage/<hash>/chatSessions/` (per-workspace chats) and `globalStorage/emptyWindowChatSessions/` (chats from folder-less VS Code windows). One folder, very different storage shape from Claude.
-
-The big difference: each Copilot Chat session file is an event log, not a stream of independent records. The first line is a full snapshot, and every line after that is a small patch that mutates the snapshot. Reading a session means replaying every line in order. The `eventlog.go` file does the replay.
+The Claude Code adapter. Reads `~/.claude` and turns its JSONL session files into normalized `Conversation` values. Implements every optional capability.
 
 | File | Job |
 |---|---|
-| `doc.go` | Package-level documentation. Describes the VS Code storage layout and the event-log replay model. |
-| `workspace.go` | Workspace decoding. Reads `workspace.json` to map an opaque hash like `0769784b...` back to the friendly project name. Defines the synthetic "(no workspace)" project for empty-window chats. |
-| `eventlog.go` | The event-log replayer. Reads kind-0 snapshots and applies kind-1 (set field) and kind-2 (append to array) patches in order. Returns the reconstructed snapshot plus a list of any unknown event kinds it saw. |
-| `parse.go` | Turns the replayed snapshot into a `Conversation`. Each entry in the snapshot's `requests` array becomes one user message and one assistant message. Recognizes markdown, thinking blocks, tool invocations, and a handful of UI-only response parts that get dropped. Reads `inputState.selectedModel.identifier` onto `Conversation.Model` so the by-model summary works for this adapter. |
-| `detect.go` | Storage version detection. Walks workspaces and falls back to empty-window chats. Same fingerprinting algorithm as Claude. |
-| `provider.go` | The `Provider` implementation. Knows how to list projects (one per workspace plus the synthetic empty-window bucket), list sessions, and read one session by id across both workspace and empty-window storage. |
-| `cleanup.go` | The `Cleaner` implementation. `PlanDelete` covers both kinds of session (workspace-bound and folder-less window). `PlanOrphanScan` finds `chatEditingSessions/` directories whose owning chat is gone. |
-| `errors.go` | The typed `Error` value, mirroring the Claude adapter's shape so both packages return errors with the same structure. |
-| `*_test.go` | Behaviour tests for each piece, with the resilience canary in `eventlog_test.go` and `parse_test.go`, and the cleanup tests in `cleanup_test.go`. |
-| `testdata/v3/` | Real-shape session fixtures for VS Code Copilot Chat schema version 3. |
-| `testdata/synthetic_future.jsonl` | The Copilot Chat canary. Contains an unknown event kind in the middle of the stream and an unknown response part inside a request. Both must survive parsing. |
+| `doc.go` | The package documentation. Describes the directory layout under `~/.claude` and what the package implements. |
+| `detect.go` | Storage-version detection. Walks the projects directory, reads a bounded prefix of the first session file, and computes a fingerprint. Maps known fingerprints to internal version names like `claude-1.0`. |
+| `parse.go` | The JSONL parser. Reads one session file end to end and produces a `Conversation`. A queued user command surfaces as an ordinary user turn, editor-attached file content surfaces as a system-role `FileContextBlock`, step-away summaries and attached documents surface as their own blocks, pure bookkeeping records are dropped, and anything unrecognized is preserved as an `UnknownBlock`. |
+| `provider.go` | The `Provider` implementation: `Name`, `Detect`, `ListProjects`, `ListSessionRefs`, `SummarizeSession`, `ReadSession`, plus the `decodeProjectPath` helper that turns an encoded-cwd folder name back into a readable path. |
+| `cleanup.go` | The `Cleaner` implementation. `PlanDelete` returns the cascade plan for one session — the `.jsonl`, the `<sessionId>/` companion directory of subagents and tool results, and the `file-history/`, `tasks/`, and `session-env/` siblings. |
+| `orphans.go` | `PlanOrphanScan`, which finds sibling files and companion directories whose owning session no longer exists. |
+| `memory.go` | The `MemoryStore` and `GlobalMemoryStore` implementations for per-project `memory/` files and the user-global `~/.claude/CLAUDE.md`. |
+| `global_config.go` | The `GlobalConfig` implementation for stale project entries in `~/.claude.json`. |
+| `resume.go` | The `Resumable` implementation. Builds the argv and working directory that re-open a session with `claude --resume`. |
+| `errors.go` | The typed `Error` value the package returns from every public function. Carries `Op`, `Path`, and `Err`, and supports `errors.Is` and `errors.As`. |
+| `testdata/` | Real-shape session fixtures plus a synthetic-future fixture that contains an unknown record type and an unknown content kind. The test that consumes it is the resilience canary. |
 
-### `adapters/copilotagent/`
+#### `adapters/copilotchat/`
 
-The GitHub Copilot agent runtime adapter. Reads `~/.copilot/session-state/<sessionId>/events.jsonl`, which is what the `@github/copilot-sdk` `LocalSessionManager` writes when the agent runs from any frontend (standalone Copilot CLI, VS Code's agent mode, or any SDK consumer). The data has zero overlap with the chat extension's storage on disk, which is why this is a distinct adapter package rather than a version of `copilotchat`.
-
-The storage shape is a typed event envelope per line. Every event has a `type` field, a `data` payload whose schema depends on the type, and envelope fields (`timestamp`, `id`, `parentId`). Known types include `session.start`, `user.message`, `assistant.message`, `tool.execution_start`, `tool.execution_complete`, and `session.shutdown`. Unknown types survive as `UnknownBlock` values inside a meta message, the same resilience rule every adapter follows.
+The VS Code Copilot Chat extension adapter. Reads `workspaceStorage/<hash>/chatSessions/` (per-workspace chats) and `globalStorage/.../emptyWindowChatSessions/` (chats from folder-less windows). Each session file is an event log, not a stream of independent records: the first line is a full snapshot and every later line is a patch that mutates it.
 
 | File | Job |
 |---|---|
-| `doc.go` | Package-level documentation. Lists the directory layout under one session folder, the known event types, and the relationship to the Copilot Chat adapter. |
-| `detect.go` | Storage version detection. Returns the single known version when `session-state/` exists, and an unknown-version sentinel when the directory is missing. |
-| `parse.go` | The event-stream parser. Reads `events.jsonl` line-by-line, folds the events into a `Conversation`, and reads `selectedModel` from the `session.start` event onto `Conversation.Model`. Joins `tool.execution_start` and `tool.execution_complete` events into matching `ToolUseBlock` and `ToolResultBlock` pairs. |
+| `doc.go` | The package documentation. Describes the VS Code storage layout and the event-log replay model. |
+| `workspace.go` | Workspace decoding. Reads `workspace.json` to map an opaque hash back to the project folder, and defines the synthetic "(no workspace)" project for empty-window chats. |
+| `eventlog.go` | The event-log replayer. Applies the snapshot and the field-set and array-append patches in order, and reports any unknown event kinds it saw. |
+| `parse.go` | Turns the replayed snapshot into a `Conversation`. Each entry in the snapshot's `requests` array becomes a user message and an assistant message, and `inputState.selectedModel.identifier` becomes the model. |
+| `detect.go` | Storage-version detection. Walks workspaces, falls back to empty-window chats, and fingerprints the same way Claude does. |
+| `provider.go` | The `Provider` implementation across both workspace and empty-window storage. |
+| `cleanup.go` | The `Cleaner` implementation. `PlanDelete` covers both kinds of session. |
+| `orphans.go` | `PlanOrphanScan`, which finds `chatEditingSessions/` directories whose owning chat is gone. |
+| `errors.go` | The typed `Error` value, mirroring the Claude adapter's shape. |
+| `testdata/` | Real-shape fixtures for schema version 3 plus the resilience canary. |
+
+#### `adapters/copilotagent/`
+
+The GitHub Copilot agent runtime adapter. Reads `~/.copilot/session-state/<sessionId>/events.jsonl`, what the `@github/copilot-sdk` `LocalSessionManager` writes when the agent runs from any frontend. The data has zero overlap with the Copilot Chat extension, which is why it is a distinct adapter. The storage shape is one typed event envelope per line.
+
+| File | Job |
+|---|---|
+| `doc.go` | The package documentation. Lists the directory layout, the known event types, and the relationship to the Copilot Chat adapter. |
+| `detect.go` | Storage-version detection. Returns the known version when `session-state/` exists and an unknown sentinel when it does not. |
+| `parse.go` | The event-stream parser. Folds the events into a `Conversation`, reads `selectedModel` from the `session.start` event, and joins tool-start and tool-complete events into matching `ToolUseBlock` and `ToolResultBlock` pairs. |
 | `provider.go` | The `Provider` implementation. Surfaces every session under one synthetic `agent-sessions` project, because the runtime stores sessions in a flat list rather than grouped by working directory. |
-| `errors.go` | The typed `Error` value, same shape as the other two adapters. |
-| `provider_test.go` | Every behaviour test for the package: detection, listing, reading, the model wiring, and the unknown-event-type canary. |
+| `errors.go` | The typed `Error` value, the same shape as the other two adapters. |
 
 ### `steps/`
 
-Pure transforms. No I/O, no environment, no time. The easiest layer to test.
+Pure transforms. No I/O, no environment, no clock. The easiest layer to test.
 
 | File | Job |
 |---|---|
-| `fingerprint.go` | The `Fingerprint` function that turns a list of record shapes into a short hex hash. The detection layer uses this to decide whether the storage matches a known version. |
-| `filter.go` | The `Filter` function that strips tools, thinking, meta records, or sub-agent traffic from a `Conversation`, based on the flags the user set. |
-| `export.go` | The `Markdown` function that renders a `Conversation` as a Markdown document. |
-| `clipboard.go` | The OSC 52 escape-sequence helper that copies text to the system clipboard. Works over SSH because the escape bytes travel as part of the terminal stream. |
-| `*_test.go` | Behaviour tests for each transform. |
+| `fingerprint.go` | `Fingerprint` turns a set of record shapes into a short hex hash. Detection uses it to decide whether the storage matches a known version. |
+| `filter.go` | `Filter` returns a copy of a `Conversation` with tool, thinking, meta, sidechain, away-summary, or file-context content removed, based on the `FilterOptions` the caller set. |
+| `export.go` | `Markdown` renders a `Conversation` as a Markdown document. |
+| `search.go` | The substring matcher that finds query hits in a conversation and returns the snippets around them. |
+| `clipboard.go` | The OSC 52 escape-sequence helper that copies text to the system clipboard, which works over SSH because the bytes travel in the terminal stream. |
 
 ### `composition/`
 
@@ -151,31 +169,27 @@ The application core. The only layer that talks to the real filesystem in produc
 
 | File | Job |
 |---|---|
-| `browse.go` | The `App` type, its `New` constructor, and the read-only methods every entrypoint calls. `ListProjects`, `ListSessionsAll`, `ReadSession`. Plus `NewForTest` so test code can build an `App` from fake providers. `New` runs every provider's `Detect` in parallel through `errgroup`. |
-| `doctor.go` | The `Doctor()` method returns one `ProviderHealth` per detected provider for the `chronicle doctor` command. The result splits errors and warnings into separate slices so the renderer and any consuming script can branch on severity without parsing message text. |
-| `clean.go` | The cleanup orchestrator. `PlanCleanup` finds sessions matching a category like "abandoned" across every provider that supports cleanup, and `ExecuteCleanup` routes each plan through the trash subsystem. Today only the abandoned category is implemented. |
-| `trash.go` | The trash subsystem. `Trash` moves the items in a deletion plan into a fresh trash entry with a manifest. `TrashList`, `TrashRestore`, and `TrashEmpty` cover the rest of the entry lifecycle. The `moveFileOrDir` helper handles cross-filesystem moves through a copy+remove fallback. |
-| `browse_test.go` | Behaviour tests for the `App` methods, using a `fakeProvider` that satisfies the `Provider` interface without touching disk. |
-| `trash_test.go` | Behaviour tests for every trash operation, including the round-trip through restore and the retention-window check on empty. |
-| `integration_test.go` | End-to-end test that runs `composition.New()` against a real (temporary) home directory with a real fixture session inside. Exercises the full wiring path that the unit tests skip. |
+| `browse.go` | The `App` type, its `New` constructor, and the read methods every entrypoint calls (`ListProjects`, `ListSessionsAll`, `ReadSession`), plus `NewForTest`. `New` runs every provider's `Detect` in parallel. |
+| `session_list.go` | `summariesForProject`, the listing pipeline `ListSessionsAll`, `Stats`, and `clean stale` share: it enumerates a project's sessions, serves the summary cache's hits, and parses only the misses in parallel. |
+| `summary_cache.go` | The persistent per-session summary cache. Keyed on each session's size, modification time, and storage fingerprint, it serves an unchanged session's summary without re-parsing, and rebuilds from scratch if its file is missing or corrupt. |
+| `search.go` | `Search` and its `SearchOptions`. Walks the providers, runs `steps.Search` over each session, and returns the matches with their snippets. |
+| `stats.go` | `Stats` and its `StatsOptions`. Builds the one-screen summary: totals, per-provider rows, top projects, and the by-model breakdown. |
+| `doctor.go` | `Doctor` returns one `ProviderHealth` per detected provider, splitting errors and warnings into separate slices so a caller can branch on severity without parsing message text. |
+| `clean.go` | The cleanup orchestrator. `PlanCleanup` finds sessions matching a category across every provider that supports cleanup, and `ExecuteCleanup` routes each plan through the trash. |
+| `trash.go` | The trash subsystem. `Trash` moves a deletion plan into a fresh trash entry with a manifest, and `TrashList`, `TrashRestore`, and `TrashEmpty` cover the rest of the entry lifecycle. |
+| `fsmove.go` | The cross-filesystem move helpers the trash relies on, falling back to copy-and-remove only on a cross-device rename error. |
+| `memory.go` | `ListMemories`, `ShowMemory`, `EditMemoryPath`, `CleanProjectMemory`, and the three global-memory equivalents. |
+| `global_config.go` | `ListConfigProjects` and `CleanConfigProjects` for stale project entries in a tool's global config file. |
+| `resume.go` | `Resume`, which returns the argv and working directory that re-open a session in its original tool. |
+| `bulk_export.go` | `BulkExport` and its `BulkExportOptions`. Writes one Markdown transcript per session in a project, streaming through the renderer rather than holding every session in memory. |
+| `humanfmt.go` | The small human-readable formatters shared by the entrypoints, including `HumanAge`, which renders a relative time and returns "unknown" for a zero timestamp. |
 
-### `internal/paths/`
-
-Filesystem path resolution for chronicle's own config and data directories.
-
-| File | Job |
-|---|---|
-| `paths.go` | The `Locations` struct and the `Resolve` function. Honours the `CHRONICLE_HOME` env override that the test suite uses. |
-| `paths_test.go` | Behaviour tests for the resolver and the env override. |
-
-### `internal/config/`
-
-User configuration.
+### `internal/`
 
 | File | Job |
 |---|---|
-| `config.go` | The `Config` struct (with all its nested subsections), the `Defaults` function, and the `Load` function. Reads `~/.config/chronicle/config.toml` and merges over the defaults. |
-| `config_test.go` | Behaviour tests for the loader, including the missing-file and malformed-file cases. |
+| `paths/paths.go` | The `Locations` struct and the `Resolve` function. Honours the `CHRONICLE_HOME` override the test suite uses. |
+| `config/config.go` | The `Config` struct with its nested subsections, the `Defaults` function, and the `Load` function that reads the TOML config and merges over the defaults. |
 
 ### `cmd/chronicle/`
 
@@ -183,21 +197,62 @@ The binary. Each subcommand lives in its own file so its flags and run function 
 
 | File | Job |
 |---|---|
-| `main.go` | The `main` function, the cobra root command, and the small helpers (`fail`, `fmtTime`) shared by the subcommands. |
-| `list.go` | The `chronicle list` subcommand. Emits one JSON line per session for shell pipelines. |
-| `export.go` | The `chronicle export <id>` subcommand. Reads a session, applies the user's filters, and writes Markdown to a file or stdout. |
-| `copy.go` | The `chronicle copy <id>` subcommand. Same Markdown pipeline as `export`, but writes the OSC 52 escape sequence so the result lands in the system clipboard. |
-| `doctor.go` | The `chronicle doctor` subcommand. Renders the result of `App.Doctor()` as text or JSON. |
-| `clean.go` | The `chronicle clean` subcommand and its category subcommands (`abandoned`, `orphans`, `stale`, `dangling`). Defaults to dry-run. The `--apply` flag is the explicit opt-in to actually move files. |
-| `trash.go` | The `chronicle trash` subcommand and its three children: `list`, `restore <id>`, and `empty [--force]`. The user reaches restorable entries through the IDs that `trash list` prints. |
-| `*_test.go` | Behaviour tests for the subcommand wiring, including a fake provider for the export pipeline. |
+| `main.go` | The `main` function, the cobra root command (which launches the TUI when given no subcommand), the shared helpers, and the config-boundary validation for the theme and Markdown-style settings. |
+| `list.go` | `chronicle list`. Emits one JSON line per session for shell pipelines. |
+| `export.go` | `chronicle export <id>` and `chronicle export --bulk <project>`. Reads a session, applies the filter flags, and writes Markdown to a file, a directory, or stdout. |
+| `copy.go` | `chronicle copy <id>`. The same Markdown pipeline as `export`, written to the clipboard via OSC 52. |
+| `search.go` | `chronicle search <query>`. Substring search across every provider, with snippet results and a `--json` flag. |
+| `stats.go` | `chronicle stats`. Renders the summary as text or JSON, with `--by-model` for the per-model breakdown. |
+| `doctor.go` | `chronicle doctor`. Renders the per-provider health report as text or JSON. |
+| `resume.go` | `chronicle resume <id>`. Re-opens a session in its original tool, or prints a clear message when the provider does not support resume. |
+| `memory.go` | `chronicle memory list/show/edit/clean`, with `--global` to target the user-global memory file. |
+| `config.go` | `chronicle config show/edit/path` for chronicle's own TOML configuration. |
+| `clean.go` | `chronicle clean` and its `abandoned`, `orphans`, and `stale` categories. Defaults to dry-run, and `--apply` is the opt-in to move files. |
+| `clean_dangling.go` | `chronicle clean dangling`, which removes config entries whose project directory is gone, editing the file byte-preservingly after a backup. |
+| `trash.go` | `chronicle trash list/restore/empty`. |
+
+### `cmd/chronicle/tui/`
+
+The terminal UI. Its own package tree, described in [The terminal UI](#the-terminal-ui).
+
+```
+cmd/chronicle/tui/
+├── tui.go              Run(app, opts) error — the entry point
+├── app.go              the top-level model and the section router
+├── screen.go           the Screen interface and the thin per-screen adapters
+├── messages.go         the cross-screen tea.Msg types
+├── keys/               the shared key bindings
+├── theme/              the lipgloss styles and the canonical separators
+├── ui/                 the shared render components (frame, spinner)
+└── screens/
+    ├── sessions/       the session list
+    ├── transcript/     the transcript reader
+    ├── stats/          the stats view
+    └── doctor/         (next screen to build)
+```
+
+## The terminal UI
+
+The TUI is a presentation layer over `composition.App`. Every screen reads from a composition method, and every action a screen offers calls a method that already exists. The TUI never imports an adapter and never invents a domain model.
+
+The stack is Charm v2: `bubbletea/v2` for the runtime and message loop, `bubbles/v2` for the `list`, `viewport`, `table`, `help`, and `key` components, `lipgloss/v2` for layout and styling, and `glamour` for Markdown rendering inside the transcript viewport.
+
+The design rules below are load-bearing. They exist so that the chrome stays identical across every screen and visual drift is structurally impossible.
+
+- **One frame, every screen.** `ui/frame.go` holds the single `Frame` renderer that every top-level screen draws through. It takes the screen's dimensions, a state (`Loading`, `Empty`, `Error`, or `Ready`), an optional status row, and the screen-curated footer bindings, and returns the rendered string with the footer anchored to the bottom. Screens own content, not chrome — a screen that needs a piece of presentation the frame does not offer extends the frame so every screen benefits, rather than hand-rolling an inline equivalent.
+- **One router.** `app.go` holds the screens in a section registry and routes the active one through the `Screen` interface (`Init`, `Update`, `View`) declared in `screen.go`. A horizontal tab strip grows automatically from the registry, so a new screen is one registry entry. Number keys jump to a section directly, and Tab and Shift-Tab cycle.
+- **Global keys live in the app model.** Esc is the back-then-quit ladder: it closes an open overlay, then clears the session list's filter, then quits. `?` opens the full-help overlay and is modal while open. `r` refreshes the active screen. `q` and Ctrl-C quit, guarded so typing in the filter does not exit.
+- **One footer rule.** The footer is a single line that never wraps and never truncates within its budget. A screen curates two or three bindings, and the frame appends `?` and `q`. Anything that does not fit lives in the `?` overlay.
+- **Canonical separators.** `theme.Separator` (` • `) joins peer items on a line, and `theme.HierarchySeparator` (` › `) joins a parent to a child. Call sites use the named values, never literal characters.
+- **Single-line list rows.** Every title and project path passes through `sanitizeSingleLine` before it reaches a list delegate, because the bubbles list trusts each row to paint exactly the height it was given.
+- **Accessibility bar.** Every action has a key binding, the default bindings cover both Vim and arrow conventions, no action needs a multi-key chord, status and provider markers carry text as well as colour, and the loading, empty, and error states are full sentences that name the next step.
 
 ## The dependency graph
 
 The arrows point in the direction the import goes. Every arrow goes downhill.
 
 ```
-                    cmd/chronicle  (the binary)
+                    cmd/chronicle  (the binary and the TUI)
                           │
                           ▼
                    composition  (orchestrates everything)
@@ -213,68 +268,52 @@ The arrows point in the direction the import goes. Every arrow goes downhill.
 
 A few rules the graph enforces:
 
-- **Adapters never import each other.** `adapters/claude` is sealed off from any future `adapters/copilot`. They both depend on `contracts`, and the registry in `adapters/all.go` is the only place that knows about both.
-- **Adapters never import composition.** A leaking import from a low layer to a high layer would create a cycle and would make adapters depend on the application core, which defeats the whole point of the seam.
+- **Adapters never import each other.** Each adapter depends on `contracts`, and the registry in `adapters/all.go` is the only place that knows about more than one.
+- **Adapters never import composition.** A leaking import from a low layer to a high layer would create a cycle and make adapters depend on the application core, which defeats the seam.
 - **Steps depend only on contracts.** No I/O, no environment, no clock. That is what makes `steps` the easiest layer to test.
-- **Composition is the only layer that opens files in production.** Adapters are handed an `fs.FS` value and never call `os.Open` themselves. That single discipline is what lets the test suite swap in an in-memory filesystem without monkeypatching anything.
+- **Composition is the only layer that opens files in production.** Adapters are handed an `fs.FS` value and never call `os.Open` themselves. That single discipline is what lets the test suite swap in an in-memory filesystem without monkeypatching.
 
 ## How a request flows through the system
 
 Concrete example: the user runs `chronicle export <session-id> --no-tools`.
 
-1. **Cobra parses the command line.** `cmd/chronicle/main.go` builds the root command, finds the `export` subcommand, parses the `--no-tools` flag, and calls the subcommand's `RunE` function.
-2. **The subcommand builds the App.** `composition.New()` runs. It resolves the filesystem paths via `internal/paths`, loads the config via `internal/config`, walks `adapters.All()` to build one `Entry` per enabled provider, and runs `Detect` on each one.
-3. **The subcommand asks the App for the session.** `app.ReadSession(id)` walks each registered provider in turn until one of them recognizes the identifier. The Claude provider's `ReadSession` calls `parse.go`'s `readSessionFile`, which opens the file and produces a `Conversation`.
-4. **The subcommand applies the filters.** `steps.Filter` returns a copy of the conversation with the tool blocks dropped. The function is pure: the original conversation is untouched.
-5. **The subcommand renders Markdown.** `steps.Markdown` walks the filtered conversation and produces a `string`.
-6. **The subcommand writes the result.** Either to stdout or to the file the user named with `-o`.
+1. **Cobra parses the command line.** `main.go` builds the root command, finds the `export` subcommand, parses `--no-tools`, and calls the subcommand's run function.
+2. **The subcommand builds the App.** `composition.New()` resolves the filesystem paths via `internal/paths`, loads the config via `internal/config`, walks `adapters.All()` to build one `Entry` per enabled provider, and runs `Detect` on each one.
+3. **The subcommand asks the App for the session.** `app.ReadSession(id)` walks each registered provider until one recognizes the identifier. The Claude provider opens the file and `parse.go` produces a `Conversation`.
+4. **The subcommand applies the filters.** `steps.Filter` returns a copy of the conversation with the tool blocks dropped. The function is pure, so the original conversation is untouched.
+5. **The subcommand renders Markdown.** `steps.Markdown` walks the filtered conversation and produces a string.
+6. **The subcommand writes the result.** Either to stdout or to the file named with `-o`.
 
-Notice that nothing in the request path knows about JSONL, fingerprints, or `~/.claude`. The CLI deals in `Conversation` values. The Claude adapter is the only thing in the binary that knows about Claude's storage shape. Adding a Copilot adapter later means one new folder under `adapters/`, one new line in `adapters/all.go`, and zero changes anywhere else.
+Nothing in the request path knows about JSONL, fingerprints, or `~/.claude`. The CLI deals in `Conversation` values, and the Claude adapter is the only thing in the binary that knows about Claude's storage shape.
 
 ## How `fs.FS` makes the test suite cheap
 
 `fs.FS` is the Go standard library's interface for a read-only filesystem. The interface is tiny: one method, `Open(name string) (fs.File, error)`.
 
-In production, composition passes `os.DirFS("/home/user/.claude")` to the adapter. `os.DirFS` is the standard library's adapter that turns a real directory into an `fs.FS`.
+In production, composition passes `os.DirFS("/home/user/.claude")` to the adapter. In tests, the suite passes `fstest.MapFS{"projects/p/s.jsonl": &fstest.MapFile{Data: ...}}`, the standard library's in-memory filesystem. The adapter cannot tell the difference between the two. Production code reads real files, test code reads fixture content, and they run the same code path with no mocking and no monkeypatching.
 
-In tests, the suite passes `fstest.MapFS{"projects/p/s.jsonl": &fstest.MapFile{Data: ...}}`. `fstest.MapFS` is the standard library's in-memory filesystem. It is a `map[string]*fstest.MapFile` that satisfies `fs.FS`.
-
-The adapter cannot tell the difference between the two. Production code reads real files. Test code reads fixture content. Same code path, no mocking, no monkeypatching, no patching of imports.
-
-This is the single most important pattern in chronicle and it explains why every test in the project runs in milliseconds.
+This is the single most important pattern in chronicle, and it is why every test in the project runs in milliseconds.
 
 ## The resilience contract in one breath
 
 Upstream tools change their on-disk formats. Chronicle has to keep working when they do, instead of crashing or losing data. The contract has four rules.
 
 1. **Detect.** Every adapter computes a short fingerprint of the storage shape it sees. Known fingerprints map to internal version names. Unknown fingerprints set `Version = "unknown"` and the system stays in read-only mode.
-2. **Parse tolerantly.** Record types and content kinds the adapter does not recognize become `UnknownBlock` values, never silent drops. The renderer surfaces them so the user sees what happened.
-3. **Capability flags.** The user interface checks `Capabilities` flags to decide which features to show, never the version string. This way, adding a fingerprint to the lookup table does not require a new chronicle release for the UI to keep working.
-4. **Warn.** When detection produces an unknown fingerprint, chronicle attaches a banner to the affected views and the destructive operations require an extra confirmation.
+2. **Parse tolerantly.** Record types and content kinds the adapter does not recognize become `UnknownBlock` values, never silent drops. The renderer surfaces them.
+3. **Capability flags.** The user interface checks `Capabilities` flags to decide which features to show, never the version string. Adding a fingerprint to the lookup table does not require a code change in the UI.
+4. **Warn.** When detection produces an unknown fingerprint, chronicle attaches a banner to the affected views, and destructive operations require an extra confirmation.
 
-Each adapter ships with a synthetic-future fixture that contains a fabricated unknown record type. The test that consumes that fixture is the canary. If anyone ever changes the parser in a way that drops unknowns, the canary fails immediately.
+Each adapter ships with a synthetic-future fixture that contains a fabricated unknown record type. The test that consumes that fixture is the canary: if anyone changes the parser in a way that drops unknowns, the canary fails immediately. The full reasoning lives in [`research/schema-resilience.md`](research/schema-resilience.md).
 
-## What's not built yet
+## How to add a new provider
 
-Today, chronicle is the read-only Claude and Copilot tool. The forward-looking pieces are stubbed in the architecture but not yet implemented.
+To add a tool — Cursor, Antigravity, or any other assistant that persists conversations locally — the change list is:
 
-- **Cleanup and trash.** `PlanDelete` and `PlanOrphanScan` on both adapters return `ErrNotImplemented`. The cascade-delete map (which sibling folders follow a session into the trash) is documented in the research notes but not yet executed in code.
-- **Cursor adapter.** Cursor is a VS Code fork with its own chat storage shape (mostly inside `state.vscdb`). It is not stubbed yet. Adding it would be a new sibling folder under `adapters/` plus one line in the registry.
-- **Antigravity and other future tools.** Same shape as Cursor: new folder, one registry line.
-- **Terminal UI and web frontend.** The composition layer already exposes everything they would need. The `internal/config` package has the `TUIConfig` and `WebConfig` blocks ready. The actual code is future work.
+1. Create `adapters/<name>/`. Follow the file structure of `adapters/claude/`: `doc.go`, `detect.go`, `parse.go`, `provider.go`, `errors.go`, plus a `cleanup.go` and `orphans.go` if the tool supports cleanup.
+2. Implement the `Provider` methods that read from disk (`Detect`, `ListProjects`, `ListSessionRefs`, `SummarizeSession`, `ReadSession`). Keep `ListSessionRefs` parse-free — stat each session, do not read it — so the composition cache can skip the parse for unchanged sessions; `SummarizeSession` does the parse on a miss and returns `contracts.NewSessionSummary`. Reuse `steps/fingerprint.go` for detection and `contracts.UnknownBlock` for any content shape you do not recognize.
+3. Implement whichever optional capability interfaces the tool supports.
+4. Add at least one real-shape fixture to `testdata/` and one synthetic-future fixture to satisfy the resilience canary.
+5. Add a default for the provider in `internal/config/config.go`.
+6. Add a factory to `adapters/all.go` and one entry to the `All()` slice.
 
-## How to add a new provider (the recipe)
-
-If you wanted to add Cursor support tomorrow, here is the entire change list:
-
-1. Create `adapters/cursor/`. Copy the file structure from `adapters/claude/` (`doc.go`, `detect.go`, `parse.go`, `provider.go`, `cleanup_stub.go`).
-2. Implement the four methods that read from disk (`Detect`, `ListProjects`, `ListSessions`, `ReadSession`). Reuse `steps/fingerprint.go` for detection. Use `contracts.UnknownBlock` for any content shape you do not recognize.
-3. Add at least one real-shape fixture to `adapters/cursor/testdata/` and one synthetic-future fixture to satisfy the resilience canary.
-4. Add a `CursorConfig` struct to `internal/config/config.go` and a default value in `Defaults()`.
-5. Add a `cursorFactory` function to `adapters/all.go` and one entry to the `All()` slice.
-
-Five steps, all additive. Composition does not change. The CLI does not change. The contracts do not change. That is what the architecture is for.
-
-## How to read this document later
-
-The fastest way to refresh your memory is to skim the dependency graph, then re-read the file-by-file walkthrough. If you are about to make a change, read the layer that owns the change and the layer immediately above and below it. Reading the whole document is only worth doing once.
+The change is additive. Composition does not change, the CLI does not change, the contracts do not change. That is what the architecture is for.

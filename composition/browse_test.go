@@ -29,8 +29,20 @@ func (f *fakeProvider) Detect(fs.FS) (contracts.StorageVersion, error) { return 
 func (f *fakeProvider) ListProjects(fs.FS) ([]contracts.Project, error) {
 	return f.projects, nil
 }
-func (f *fakeProvider) ListSessions(_ fs.FS, p contracts.ProjectID) ([]contracts.SessionSummary, error) {
-	return f.sessions[p], nil
+func (f *fakeProvider) ListSessionRefs(_ fs.FS, p contracts.ProjectID) ([]contracts.SessionRef, error) {
+	var refs []contracts.SessionRef
+	for _, s := range f.sessions[p] {
+		refs = append(refs, contracts.SessionRef{ID: s.ID, Project: p, SizeBytes: s.SizeBytes})
+	}
+	return refs, nil
+}
+func (f *fakeProvider) SummarizeSession(_ fs.FS, ref contracts.SessionRef) (contracts.SessionSummary, error) {
+	for _, s := range f.sessions[ref.Project] {
+		if s.ID == ref.ID {
+			return s, nil
+		}
+	}
+	return contracts.SessionSummary{}, fs.ErrNotExist
 }
 func (f *fakeProvider) ReadSession(_ fs.FS, id contracts.SessionID) (contracts.Conversation, error) {
 	c, ok := f.convos[id]

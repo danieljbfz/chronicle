@@ -261,16 +261,20 @@ func parseEventStream(root fs.FS, sessionDir string, source contracts.StorageVer
 				// shape.
 				start = toolStartData{ToolCallID: d.ToolCallID}
 			}
+			// A tool result is the tool's output, not bookkeeping,
+			// so it is not meta: the reader controls it with the
+			// tool filter, the same as the other two adapters, and
+			// the meta filter leaves it alone. The renderer labels
+			// the turn "Tool" rather than by this system role.
 			messages = append(messages, contracts.Message{
 				ID:        contracts.MessageID(ev.ID),
 				ParentID:  contracts.MessageID(ev.ParentID),
 				Role:      contracts.RoleSystem,
 				Timestamp: ts,
-				IsMeta:    true,
 				Blocks: []contracts.Block{
 					contracts.ToolResultBlock{
 						CallID:  start.ToolCallID,
-						Output:  string(d.Result),
+						Output:  flattenToolResult(d.Result),
 						IsError: !d.Success,
 					},
 				},
@@ -338,6 +342,36 @@ func assistantMessageBlocks(d assistantMessageData) []contracts.Block {
 		})
 	}
 	return blocks
+}
+
+// flattenToolResult turns the agent's tool-result payload into the
+// plain text the renderer expects, mirroring how the copilot-chat
+// adapter flattens its own result shape. The runtime records a
+// result as an object with a "content" field carrying the tool's
+// textual output and a "detailedContent" field carrying a fuller,
+// often diff-shaped view of the same outcome. A transcript wants
+// the primary output, so the content field is preferred and
+// detailedContent is the fallback when content is empty.
+//
+// A payload that is not this object shape — a bare string, an
+// array, or some future structure — is preserved as its raw JSON
+// rather than dropped, the same resilience rule the rest of the
+// adapter follows.
+func flattenToolResult(result json.RawMessage) string {
+	var shaped struct {
+		Content         string `json:"content"`
+		DetailedContent string `json:"detailedContent"`
+	}
+	if err := json.Unmarshal(result, &shaped); err != nil {
+		return string(result)
+	}
+	if shaped.Content != "" {
+		return shaped.Content
+	}
+	if shaped.DetailedContent != "" {
+		return shaped.DetailedContent
+	}
+	return string(result)
 }
 
 // readVscodeTitle returns the customTitle from the

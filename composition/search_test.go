@@ -27,8 +27,20 @@ func (f *searchFake) Detect(fs.FS) (contracts.StorageVersion, error) {
 func (f *searchFake) ListProjects(fs.FS) ([]contracts.Project, error) {
 	return f.projects, nil
 }
-func (f *searchFake) ListSessions(_ fs.FS, p contracts.ProjectID) ([]contracts.SessionSummary, error) {
-	return f.sessions[p], nil
+func (f *searchFake) ListSessionRefs(_ fs.FS, p contracts.ProjectID) ([]contracts.SessionRef, error) {
+	var refs []contracts.SessionRef
+	for _, s := range f.sessions[p] {
+		refs = append(refs, contracts.SessionRef{ID: s.ID, Project: p, SizeBytes: s.SizeBytes})
+	}
+	return refs, nil
+}
+func (f *searchFake) SummarizeSession(_ fs.FS, ref contracts.SessionRef) (contracts.SessionSummary, error) {
+	for _, s := range f.sessions[ref.Project] {
+		if s.ID == ref.ID {
+			return s, nil
+		}
+	}
+	return contracts.SessionSummary{}, fs.ErrNotExist
 }
 func (f *searchFake) ReadSession(_ fs.FS, id contracts.SessionID) (contracts.Conversation, error) {
 	c, ok := f.convos[id]
@@ -168,13 +180,17 @@ func TestSearch_resultsAreStableAcrossRuns(t *testing.T) {
 		projects: []contracts.Project{{ID: "p1"}},
 		sessions: map[contracts.ProjectID][]contracts.SessionSummary{
 			"p1": {
-				{ID: "s1", Project: "p1", Title: "Beta session"},
-				{ID: "s2", Project: "p1", Title: "Alpha session"},
+				{ID: "s1", Project: "p1"},
+				{ID: "s2", Project: "p1"},
 			},
 		},
+		// The title a result carries is the conversation's listing
+		// title, the same value the listing surfaces show. Each
+		// session's first prompt both carries the search term and
+		// determines the title, so the two sort alphabetically.
 		convos: map[contracts.SessionID]contracts.Conversation{
-			"s1": convWithText("chronicle", "yes"),
-			"s2": convWithText("chronicle", "yes"),
+			"s1": convWithText("Beta session about chronicle", "yes"),
+			"s2": convWithText("Alpha session about chronicle", "yes"),
 		},
 	}
 	a := makeSearchApp(t, fake)
@@ -185,8 +201,8 @@ func TestSearch_resultsAreStableAcrossRuns(t *testing.T) {
 	if len(results) != 2 {
 		t.Fatalf("results = %d, want 2", len(results))
 	}
-	if results[0].Title != "Alpha session" {
-		t.Errorf("first result title = %q, want Alpha session (alphabetical)", results[0].Title)
+	if results[0].Title != "Alpha session about chronicle" {
+		t.Errorf("first result title = %q, want the alphabetically-first title", results[0].Title)
 	}
 }
 

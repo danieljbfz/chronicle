@@ -80,10 +80,27 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	_, err = io.Copy(out, in)
-	return err
+	// Step 1: Copy the bytes. On failure, close the handle and
+	// remove the partial destination so the caller is never left
+	// with a truncated file that looks like a finished copy.
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst) //nolint:errcheck // best-effort cleanup of the partial file we are abandoning
+		return err
+	}
+
+	// Step 2: Close explicitly and treat the error as real. A
+	// write-back filesystem (a full disk, a dropped network volume)
+	// can accept every write and only report the failure at close
+	// time. A discarded close error would let moveFileOrDir delete
+	// the source against a destination whose bytes never landed, so
+	// surface it and remove the partial file before returning.
+	if err := out.Close(); err != nil {
+		os.Remove(dst) //nolint:errcheck // best-effort cleanup of the partial file we are abandoning
+		return err
+	}
+	return nil
 }
 
 // copyDir recursively copies a directory tree. The function

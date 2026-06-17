@@ -171,54 +171,46 @@ func decodeProjectPath(folderName string) string {
 	return folderName
 }
 
-// ListSessions returns one summary per session in a project. We
-// read every session file end to end inside this function. The
-// summary needs the first user prompt and the timestamps, and
-// neither of those is available until we have parsed the file.
-//
-// Reading every file sounds expensive, but it only happens once
-// per session per chronicle run. The user interface caches the
-// summaries it gets back, so opening the same listing twice does
-// not pay the cost twice.
-func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]contracts.SessionSummary, error) {
+// ListSessionRefs returns one parse-free ref per session in a project.
+// It stats each .jsonl file for its size and modification time but
+// parses none of them, so it stays cheap on a large install. The
+// composition layer turns these refs into summaries, serving unchanged
+// ones from its cache and parsing only the rest through SummarizeSession.
+func (p *Provider) ListSessionRefs(root fs.FS, project contracts.ProjectID) ([]contracts.SessionRef, error) {
 	dir := path.Join(projectsDir, string(project))
 	entries, err := fs.ReadDir(root, dir)
 	if err != nil {
 		return nil, newError("list sessions", dir, err)
 	}
-	var summaries []contracts.SessionSummary
+	var refs []contracts.SessionRef
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
-		sessionFile := path.Join(dir, e.Name())
-		sv := p.cached
-		c, err := readSessionFile(root, sessionFile, sv)
-		if err != nil {
-			return nil, newError("read session", sessionFile, err)
+		ref := contracts.SessionRef{
+			ID:      contracts.SessionID(strings.TrimSuffix(e.Name(), ".jsonl")),
+			Project: project,
+			Locator: path.Join(dir, e.Name()),
 		}
-		info, _ := e.Info()
-		var size int64
-		if info != nil {
-			size = info.Size()
+		if info, err := e.Info(); err == nil {
+			ref.SizeBytes = info.Size()
+			ref.ModTime = info.ModTime()
 		}
-		summaries = append(summaries, contracts.SessionSummary{
-			ID:           contracts.SessionID(strings.TrimSuffix(e.Name(), ".jsonl")),
-			Project:      project,
-			StartedAt:    c.StartedAt,
-			LastActive:   c.EndedAt,
-			Title:        c.ListingTitle(),
-			TurnCount:    len(c.Messages),
-			SizeBytes:    size,
-			Model:        c.Model,
-			Capabilities: sv.Capabilities,
-			Source:       sv,
-		})
+		refs = append(refs, ref)
 	}
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].LastActive.After(summaries[j].LastActive)
-	})
-	return summaries, nil
+	return refs, nil
+}
+
+// SummarizeSession parses the one session the ref names and returns its
+// listing summary. This is the expensive call composition pays only on a
+// cache miss. It parses the file the locator names directly, so it does
+// not repeat the directory walk ListSessionRefs already did.
+func (p *Provider) SummarizeSession(root fs.FS, ref contracts.SessionRef) (contracts.SessionSummary, error) {
+	conv, err := readSessionFile(root, ref.Locator, p.cached)
+	if err != nil {
+		return contracts.SessionSummary{}, newError("read session", ref.Locator, err)
+	}
+	return contracts.NewSessionSummary(ref, conv, p.cached), nil
 }
 
 // ReadSession finds one session by walking the projects tree and
@@ -227,7 +219,7 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 // and copy commands, which only ever touch one session at a time.
 //
 // A future view that needs to read many sessions in bulk should
-// call ListSessions first to get all the identifiers, then call
+// call ListSessionRefs first to get all the identifiers, then call
 // ReadSession on each one. Doing the walk per identifier would
 // repeat work the listing already did.
 func (p *Provider) ReadSession(root fs.FS, id contracts.SessionID) (contracts.Conversation, error) {

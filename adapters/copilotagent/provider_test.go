@@ -114,24 +114,28 @@ func TestProvider_ListProjectsEmptyTreeReturnsNothing(t *testing.T) {
 	}
 }
 
-// TestProvider_ListSessionsCarriesTitleAndCwd confirms the
-// summary picks up the title from the VS Code metadata
-// sidecar and the cwd from the session.start event. Both
-// pieces of information are critical for the user to
-// recognise which session they are looking at.
-func TestProvider_ListSessionsCarriesTitleAndCwd(t *testing.T) {
+// TestProvider_SummarizeSession_carriesTitleAndTurnCount confirms
+// the summary picks up the title from the VS Code metadata sidecar
+// and counts the turns from the session's events. Both pieces of
+// information are critical for the user to recognise which session
+// they are looking at.
+func TestProvider_SummarizeSession_carriesTitleAndTurnCount(t *testing.T) {
 	p := New()
-	if _, err := p.Detect(buildAgentFS()); err != nil {
+	fsys := buildAgentFS()
+	if _, err := p.Detect(fsys); err != nil {
 		t.Fatal(err)
 	}
-	summaries, err := p.ListSessions(buildAgentFS(), agentProjectID)
+	refs, err := p.ListSessionRefs(fsys, agentProjectID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(summaries) != 1 {
-		t.Fatalf("summaries = %d, want 1", len(summaries))
+	if len(refs) != 1 {
+		t.Fatalf("refs = %d, want 1", len(refs))
 	}
-	got := summaries[0]
+	got, err := p.SummarizeSession(fsys, refs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.ID != realSessionUUID {
 		t.Errorf("ID = %q, want %q", got.ID, realSessionUUID)
 	}
@@ -263,10 +267,15 @@ func TestParse_assistantMessageProducesToolUseBlocks(t *testing.T) {
 // tool.execution_start with the matching
 // tool.execution_complete and emits a single
 // ToolResultBlock.
+//
+// The result payload uses the real shape the runtime writes —
+// an object with content and detailedContent — so the test
+// also pins the flatten: the block's Output must be exactly the
+// content text, not the raw JSON and not the detailedContent.
 func TestParse_toolStartCompletePairProducesResultBlock(t *testing.T) {
 	body := `{"type":"session.start","data":{"sessionId":"` + realSessionUUID + `","startTime":"2026-04-19T17:37:18.001Z","context":{"cwd":"/p"}},"timestamp":"2026-04-19T17:37:18.001Z","id":"e1"}
 {"type":"tool.execution_start","data":{"toolCallId":"call-1","toolName":"view","arguments":{"path":"/p/file.txt"}},"timestamp":"2026-04-19T17:37:20.000Z","id":"e2"}
-{"type":"tool.execution_complete","data":{"toolCallId":"call-1","success":true,"result":{"content":"file body"}},"timestamp":"2026-04-19T17:37:20.500Z","id":"e3"}
+{"type":"tool.execution_complete","data":{"toolCallId":"call-1","success":true,"result":{"content":"file body","detailedContent":"diff --git a/file.txt"}},"timestamp":"2026-04-19T17:37:20.500Z","id":"e3"}
 `
 	fsys := fstest.MapFS{
 		"session-state/" + realSessionUUID + "/events.jsonl": &fstest.MapFile{Data: []byte(body)},
@@ -297,8 +306,8 @@ func TestParse_toolStartCompletePairProducesResultBlock(t *testing.T) {
 	if found.IsError {
 		t.Errorf("IsError = true, want false (the complete event reported success)")
 	}
-	if !strings.Contains(found.Output, "file body") {
-		t.Errorf("Output = %q, want it to include the result content", found.Output)
+	if found.Output != "file body" {
+		t.Errorf("Output = %q, want exactly the flattened content (not the raw JSON or detailedContent)", found.Output)
 	}
 }
 
@@ -307,15 +316,16 @@ func TestParse_toolStartCompletePairProducesResultBlock(t *testing.T) {
 // model once per session in session.start.selectedModel,
 // and parseEventStream surfaces that value on the resulting
 // Conversation so the stats renderer can roll it into the
-// by-model breakdown. ListSessions then carries the same
+// by-model breakdown. SummarizeSession then carries the same
 // value onto the SessionSummary without paying the read
 // cost twice.
 func TestParse_sessionStartCarriesSelectedModel(t *testing.T) {
 	p := New()
-	if _, err := p.Detect(buildAgentFS()); err != nil {
+	fsys := buildAgentFS()
+	if _, err := p.Detect(fsys); err != nil {
 		t.Fatal(err)
 	}
-	conv, err := p.ReadSession(buildAgentFS(), realSessionUUID)
+	conv, err := p.ReadSession(fsys, realSessionUUID)
 	if err != nil {
 		t.Fatalf("ReadSession: %v", err)
 	}
@@ -323,15 +333,19 @@ func TestParse_sessionStartCarriesSelectedModel(t *testing.T) {
 		t.Errorf("Conversation.Model = %q, want claude-sonnet-4.6", conv.Model)
 	}
 
-	summaries, err := p.ListSessions(buildAgentFS(), agentProjectID)
+	refs, err := p.ListSessionRefs(fsys, agentProjectID)
 	if err != nil {
-		t.Fatalf("ListSessions: %v", err)
+		t.Fatalf("ListSessionRefs: %v", err)
 	}
-	if len(summaries) != 1 {
-		t.Fatalf("got %d summaries, want 1", len(summaries))
+	if len(refs) != 1 {
+		t.Fatalf("got %d refs, want 1", len(refs))
 	}
-	if summaries[0].Model != "claude-sonnet-4.6" {
-		t.Errorf("SessionSummary.Model = %q, want claude-sonnet-4.6", summaries[0].Model)
+	summary, err := p.SummarizeSession(fsys, refs[0])
+	if err != nil {
+		t.Fatalf("SummarizeSession: %v", err)
+	}
+	if summary.Model != "claude-sonnet-4.6" {
+		t.Errorf("SessionSummary.Model = %q, want claude-sonnet-4.6", summary.Model)
 	}
 }
 

@@ -28,11 +28,18 @@ import (
 // CopilotAgentRoot is the location of the @github/copilot-sdk
 // runtime's session storage. The SDK uses ~/.copilot/ on
 // every platform it supports today.
+// CacheDir holds regenerable data, so it lives under the ~/.cache base
+// rather than the ~/.config base the config, trash, and reports use.
+// The separation means the cache is safe to delete and stays out of a
+// config backup, matching the XDG convention and the freedesktop
+// thumbnail cache it most resembles (a persistent, per-file derived
+// artifact keyed on stat data).
 type Locations struct {
 	ConfigDir        string
 	ConfigFile       string
 	TrashDir         string
 	ReportsDir       string
+	CacheDir         string
 	HomeDir          string
 	ClaudeRoot       string
 	CopilotChatRoots []string
@@ -58,6 +65,7 @@ func Resolve() (Locations, error) {
 		ConfigFile:       filepath.Join(config, "config.toml"),
 		TrashDir:         filepath.Join(config, "trash"),
 		ReportsDir:       filepath.Join(config, "format-reports"),
+		CacheDir:         filepath.Join(home, ".cache", "chronicle"),
 		HomeDir:          home,
 		ClaudeRoot:       filepath.Join(home, ".claude"),
 		CopilotChatRoots: defaultCopilotChatRoots(home),

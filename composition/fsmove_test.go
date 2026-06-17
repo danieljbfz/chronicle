@@ -71,10 +71,10 @@ func TestMoveFileOrDir_movesADirectoryTree(t *testing.T) {
 // surface the error rather than fall back to copy-and-remove.
 // The fixture renames a directory onto an existing non-empty
 // directory, which the kernel rejects with ENOTEMPTY rather
-// than EXDEV. The old behaviour would have merged the source
-// tree into the destination and then deleted the source — a
-// silent, wrong move. The correct behaviour returns the error
-// and leaves the source in place.
+// than EXDEV. Falling back to copy-and-remove on that error
+// would merge the source tree into the destination and then
+// delete the source — a silent, wrong move. The correct
+// behaviour returns the error and leaves the source in place.
 func TestMoveFileOrDir_nonCrossDeviceFailureDoesNotFallBack(t *testing.T) {
 	dir := t.TempDir()
 
@@ -138,6 +138,31 @@ func TestCopyFile_preservesModeAndContents(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v, want 0o600", info.Mode().Perm())
+	}
+}
+
+// TestCopyFile_removesPartialDestinationOnCopyFailure pins the
+// data-safety contract the cross-device move depends on. When the
+// copy fails partway, copyFile must return the error and leave no
+// destination behind. moveFileOrDir deletes the source only after
+// copyFile returns nil, so a copy that failed yet reported success
+// and left a truncated destination would lose the source. The
+// fixture opens a directory as the source: the open succeeds, but
+// the first Read on a directory handle fails on Linux and macOS,
+// which is the simplest way to force a copy failure with real files.
+func TestCopyFile_removesPartialDestinationOnCopyFailure(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "a-directory")
+	if err := os.Mkdir(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "dst.bin")
+
+	if err := copyFile(srcDir, dst, 0o644); err == nil {
+		t.Fatal("copyFile should return an error when the copy fails")
+	}
+	if _, err := os.Stat(dst); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("partial destination should be removed after a copy failure, stat err = %v", err)
 	}
 }
 

@@ -15,8 +15,8 @@ The fixtures by purpose:
   v1_0/empty_session.jsonl
       A session that was opened, ran /clear, and never received a real
       prompt. The IsAbandoned() check returns true for this. Used to
-      verify the abandoned-session detection that drives the cleanup
-      feature in Plan C.
+      verify the abandoned-session detection that drives
+      `chronicle clean abandoned`.
 
   v1_0/small_session.jsonl
       Three turns: user prompt -> assistant text + tool_use -> user

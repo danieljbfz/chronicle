@@ -9,10 +9,10 @@ package contracts
 // string or the literal "unknown" in that case, and the IsKnown
 // helper below returns false.
 type StorageVersion struct {
-	Adapter      string
-	Version      string
-	Fingerprint  string
-	Capabilities Capabilities
+	Adapter      string       `json:"adapter"`
+	Version      string       `json:"version"`
+	Fingerprint  string       `json:"fingerprint"`
+	Capabilities Capabilities `json:"capabilities"`
 }
 
 // Capabilities describes what an adapter understands about the
@@ -27,11 +27,11 @@ type StorageVersion struct {
 // table. With capability flags, the fingerprint table can grow
 // without changing the rest of the code.
 type Capabilities struct {
-	ThreadTree         bool
-	EditingSessions    bool
-	ToolInvocations    bool
-	ModelMetadata      bool
-	LiveWriterDetected bool
+	ThreadTree         bool `json:"thread_tree"`
+	EditingSessions    bool `json:"editing_sessions"`
+	ToolInvocations    bool `json:"tool_invocations"`
+	ModelMetadata      bool `json:"model_metadata"`
+	LiveWriterDetected bool `json:"live_writer_detected"`
 }
 
 // IsKnown reports whether the storage matched a recognized schema. The

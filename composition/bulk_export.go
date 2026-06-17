@@ -13,15 +13,17 @@ import (
 // BulkExportOptions controls App.BulkExport. Provider scopes
 // the lookup to one adapter when several happen to know the
 // same project identifier (a synthetic case today, but
-// possible the moment a future adapter ships). The three
-// boolean filters mirror the single-session export so the
-// bulk path produces output that looks identical to running
+// possible the moment a future adapter ships). The boolean
+// filters mirror the single-session export so the bulk path
+// produces output that looks identical to running
 // `chronicle export <id>` once per session.
 type BulkExportOptions struct {
-	Provider     string
-	HideTools    bool
-	HideThinking bool
-	HideMeta     bool
+	Provider          string
+	HideTools         bool
+	HideThinking      bool
+	HideMeta          bool
+	HideAwaySummaries bool
+	HideFileContext   bool
 }
 
 // BulkExportEntry is one rendered session in the bulk
@@ -83,11 +85,10 @@ func (a *App) BulkExport(projectID contracts.ProjectID, opts BulkExportOptions, 
 		return 0, err
 	}
 
-	// Step 2: list every session under the project. We only
-	// need summaries here, not full conversations, so the
-	// listing cost is the same as `chronicle list` against
-	// the same project.
-	summaries, err := provider.Provider.ListSessions(provider.FS, projectID)
+	// Step 2: enumerate every session under the project. We need
+	// only the identifiers here — the loop below reads each session
+	// in full — so this is the cheap ref listing, not a parse.
+	refs, err := provider.Provider.ListSessionRefs(provider.FS, projectID)
 	if err != nil {
 		return 0, fmt.Errorf("export bulk: list sessions: %w", err)
 	}
@@ -98,23 +99,27 @@ func (a *App) BulkExport(projectID contracts.ProjectID, opts BulkExportOptions, 
 	// error so a failing destination aborts the bulk
 	// operation instead of silently dropping later sessions.
 	filterOpts := steps.FilterOptions{
-		HideTools:    opts.HideTools,
-		HideThinking: opts.HideThinking,
-		HideMeta:     opts.HideMeta,
+		HideTools:         opts.HideTools,
+		HideThinking:      opts.HideThinking,
+		HideMeta:          opts.HideMeta,
+		HideAwaySummaries: opts.HideAwaySummaries,
+		HideFileContext:   opts.HideFileContext,
 	}
 
 	var written int
-	for _, summary := range summaries {
-		conv, err := provider.Provider.ReadSession(provider.FS, summary.ID)
+	for _, ref := range refs {
+		conv, err := provider.Provider.ReadSession(provider.FS, ref.ID)
 		if err != nil {
-			return written, fmt.Errorf("export bulk: read %s: %w", summary.ID, err)
+			return written, fmt.Errorf("export bulk: read %s: %w", ref.ID, err)
 		}
-		conv = steps.Filter(conv, filterOpts)
+		// The title and start time come from the full conversation,
+		// matching the single-session export. The content renders
+		// from the filtered copy.
 		entry := BulkExportEntry{
-			SessionID: summary.ID,
-			Title:     summary.Title,
-			StartedAt: summary.StartedAt,
-			Content:   steps.Markdown(conv),
+			SessionID: ref.ID,
+			Title:     conv.ListingTitle(),
+			StartedAt: conv.StartedAt,
+			Content:   steps.Markdown(steps.Filter(conv, filterOpts)),
 		}
 		if err := each(entry); err != nil {
 			return written, err

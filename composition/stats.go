@@ -125,12 +125,12 @@ type Stats struct {
 }
 
 // Stats walks every detected provider and returns a one-shot
-// summary built from session summaries alone. It does not
-// call ReadSession, which means the cost is bounded by the
-// listing cost rather than by the JSON-parse cost of every
-// session on disk. On the contributor's machine this is the
-// difference between sub-second and several-second response
-// times for a few hundred sessions.
+// summary built from the session summaries the listing layer
+// produces. It does no extra parsing of its own: summariesForProject
+// serves unchanged sessions from the persistent cache and parses
+// only the ones whose files changed, so a repeat run is bounded by
+// the directory walk rather than by the cost of parsing every
+// session on disk.
 //
 // The returned Providers slice is in registration order so
 // the CLI output is stable across runs. TopProjects is
@@ -141,6 +141,7 @@ type Stats struct {
 // Detect is skipped, the same way ListSessionsAll handles
 // it. Any other listing error is returned to the caller.
 func (a *App) Stats(opts StatsOptions) (Stats, error) {
+	defer a.flushSummaryCache()
 	topN := opts.TopN
 	if topN == 0 {
 		topN = defaultStatsTopN
@@ -154,7 +155,7 @@ func (a *App) Stats(opts StatsOptions) (Stats, error) {
 		if opts.Provider != "" && p.Provider.Name() != opts.Provider {
 			continue
 		}
-		ps, projects, perModel, err := statsForProvider(p)
+		ps, projects, perModel, err := a.statsForProvider(p)
 		if err != nil {
 			return Stats{}, err
 		}
@@ -224,7 +225,7 @@ func sortedModelStats(byModel map[string]*Aggregate) []ModelStats {
 // project slice when the provider's root directory does not
 // exist, mirroring the same fs.ErrNotExist tolerance the
 // other composition methods apply.
-func statsForProvider(p *providerEntry) (ProviderStats, []ProjectStats, map[string]*Aggregate, error) {
+func (a *App) statsForProvider(p *providerEntry) (ProviderStats, []ProjectStats, map[string]*Aggregate, error) {
 	ps := ProviderStats{Name: p.Provider.Name()}
 	byModel := map[string]*Aggregate{}
 
@@ -238,7 +239,7 @@ func statsForProvider(p *providerEntry) (ProviderStats, []ProjectStats, map[stri
 
 	rows := make([]ProjectStats, 0, len(projects))
 	for _, project := range projects {
-		summaries, err := p.Provider.ListSessions(p.FS, project.ID)
+		summaries, err := a.summariesForProject(p, project.ID)
 		if err != nil {
 			return ProviderStats{}, nil, nil, err
 		}

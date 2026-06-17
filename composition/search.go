@@ -124,12 +124,12 @@ func searchProvider(p *providerEntry, query string, matchOpts steps.SearchOption
 
 	var results []SearchResult
 	for _, project := range projects {
-		summaries, err := p.Provider.ListSessions(p.FS, project.ID)
+		refs, err := p.Provider.ListSessionRefs(p.FS, project.ID)
 		if err != nil {
 			return nil, err
 		}
-		for _, summary := range summaries {
-			conv, err := p.Provider.ReadSession(p.FS, summary.ID)
+		for _, ref := range refs {
+			conv, err := p.Provider.ReadSession(p.FS, ref.ID)
 			if err != nil {
 				// One bad session should not bury the rest.
 				// We keep going and rely on the doctor view
@@ -142,9 +142,9 @@ func searchProvider(p *providerEntry, query string, matchOpts steps.SearchOption
 			}
 			results = append(results, SearchResult{
 				Provider:  p.Provider.Name(),
-				SessionID: summary.ID,
-				ProjectID: summary.Project,
-				Title:     summary.Title,
+				SessionID: ref.ID,
+				ProjectID: ref.Project,
+				Title:     conv.ListingTitle(),
 				Snippets:  snippets,
 			})
 		}

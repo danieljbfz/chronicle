@@ -39,8 +39,20 @@ func (f *cleanerFake) Detect(fs.FS) (contracts.StorageVersion, error) {
 func (f *cleanerFake) ListProjects(fs.FS) ([]contracts.Project, error) {
 	return f.projects, nil
 }
-func (f *cleanerFake) ListSessions(_ fs.FS, p contracts.ProjectID) ([]contracts.SessionSummary, error) {
-	return f.sessions[p], nil
+func (f *cleanerFake) ListSessionRefs(_ fs.FS, p contracts.ProjectID) ([]contracts.SessionRef, error) {
+	var refs []contracts.SessionRef
+	for _, s := range f.sessions[p] {
+		refs = append(refs, contracts.SessionRef{ID: s.ID, Project: p, SizeBytes: s.SizeBytes})
+	}
+	return refs, nil
+}
+func (f *cleanerFake) SummarizeSession(_ fs.FS, ref contracts.SessionRef) (contracts.SessionSummary, error) {
+	for _, s := range f.sessions[ref.Project] {
+		if s.ID == ref.ID {
+			return s, nil
+		}
+	}
+	return contracts.SessionSummary{}, fs.ErrNotExist
 }
 func (f *cleanerFake) ReadSession(_ fs.FS, id contracts.SessionID) (contracts.Conversation, error) {
 	c, ok := f.convos[id]
@@ -391,8 +403,11 @@ func (readOnlyFake) Detect(fs.FS) (contracts.StorageVersion, error) {
 	return contracts.StorageVersion{}, nil
 }
 func (readOnlyFake) ListProjects(fs.FS) ([]contracts.Project, error) { return nil, nil }
-func (readOnlyFake) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (readOnlyFake) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (readOnlyFake) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (readOnlyFake) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversation, error) {
 	return contracts.Conversation{}, nil

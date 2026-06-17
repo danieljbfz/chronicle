@@ -24,10 +24,11 @@ func TestReplay_appliesSetEvent(t *testing.T) {
 // TestReplay_appliesAppendEvent confirms that a kind-2 event
 // appends to the slice at the given key path. The fixture starts
 // with an empty requests array and the kind-2 event adds one
-// request to it.
+// request to it. VS Code writes the value as an array of elements
+// to append, so appending one request is a one-element array.
 func TestReplay_appliesAppendEvent(t *testing.T) {
 	stream := strings.NewReader(`{"kind":0,"v":{"sessionId":"abc","requests":[]}}
-{"kind":2,"k":["requests"],"v":{"requestId":"r1"}}
+{"kind":2,"k":["requests"],"v":[{"requestId":"r1"}]}
 `)
 	result, err := replay(stream)
 	if err != nil {
@@ -101,12 +102,53 @@ garbage
 // the inner map on the way.
 func TestSetAtPath_walksNested(t *testing.T) {
 	state := map[string]any{}
-	setAtPath(state, []string{"outer", "inner"}, "value")
+	setAtPath(state, []any{"outer", "inner"}, "value")
 	inner, ok := state["outer"].(map[string]any)
 	if !ok {
 		t.Fatalf("outer should be a map, got %#v", state["outer"])
 	}
 	if inner["inner"] != "value" {
 		t.Errorf("inner.inner = %v, want value", inner["inner"])
+	}
+}
+
+// TestReplay_appliesPatchThroughArrayIndex is the regression guard
+// for the empty-session bug. VS Code builds a session's content with
+// patches whose path descends through an array index, stored as a
+// JSON number, e.g. ["requests", 0, "response"]. The path used to be
+// typed as a slice of strings, so the number failed to decode; the
+// streaming decoder could not resync, and the whole replay aborted,
+// leaving a session whose content arrived through such patches
+// completely empty. The replay must instead apply them and reach the
+// events that follow.
+func TestReplay_appliesPatchThroughArrayIndex(t *testing.T) {
+	stream := strings.NewReader(`{"kind":0,"v":{"requests":[{"requestId":"r1"}]}}
+{"kind":1,"k":["requests",0,"responseId"],"v":"resp-1"}
+{"kind":2,"k":["requests",0,"response"],"v":[{"kind":"markdown"}]}
+{"kind":1,"k":["title"],"v":"survived"}
+`)
+	result, err := replay(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The final string-path event applies only if the integer-path
+	// events before it did not abort the replay.
+	if got := snapshotString(result.State, "title"); got != "survived" {
+		t.Errorf("title = %q, want survived (an integer-index patch must not abort the replay)", got)
+	}
+	requests := snapshotSlice(result.State, "requests")
+	if len(requests) != 1 {
+		t.Fatalf("requests count = %d, want 1", len(requests))
+	}
+	first, ok := requests[0].(map[string]any)
+	if !ok {
+		t.Fatalf("request[0] should be a map, got %#v", requests[0])
+	}
+	if first["responseId"] != "resp-1" {
+		t.Errorf("set through requests[0].responseId failed: %#v", first["responseId"])
+	}
+	response, ok := first["response"].([]any)
+	if !ok || len(response) != 1 {
+		t.Errorf("append through requests[0].response failed: %#v", first["response"])
 	}
 }

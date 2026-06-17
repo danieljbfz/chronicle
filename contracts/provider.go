@@ -36,7 +36,7 @@ import "io/fs"
 // Detect runs before the listing and reading methods, and the
 // caller is responsible for that order. Composition.New calls
 // Detect on every provider through detectAll before it serves a
-// single ListProjects, ListSessions, or ReadSession call. The
+// single ListProjects, ListSessionRefs, or ReadSession call. The
 // ordering matters because the listing and reading methods stamp
 // the detected StorageVersion and its Capabilities onto the
 // SessionSummary and Conversation values they return, reading the
@@ -65,7 +65,8 @@ type Provider interface {
 	Detect(root fs.FS) (StorageVersion, error)
 
 	ListProjects(root fs.FS) ([]Project, error)
-	ListSessions(root fs.FS, project ProjectID) ([]SessionSummary, error)
+	ListSessionRefs(root fs.FS, project ProjectID) ([]SessionRef, error)
+	SummarizeSession(root fs.FS, ref SessionRef) (SessionSummary, error)
 	ReadSession(root fs.FS, id SessionID) (Conversation, error)
 }
 

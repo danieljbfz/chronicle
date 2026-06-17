@@ -195,19 +195,19 @@ func planAbandonedSessions(p *providerEntry, cleaner contracts.Cleaner) ([]contr
 
 	var plans []contracts.DeletePlan
 	for _, project := range projects {
-		summaries, err := p.Provider.ListSessions(p.FS, project.ID)
+		refs, err := p.Provider.ListSessionRefs(p.FS, project.ID)
 		if err != nil {
 			return nil, err
 		}
-		for _, summary := range summaries {
-			conv, err := p.Provider.ReadSession(p.FS, summary.ID)
+		for _, ref := range refs {
+			conv, err := p.Provider.ReadSession(p.FS, ref.ID)
 			if err != nil {
 				return nil, err
 			}
 			if !conv.IsAbandoned() {
 				continue
 			}
-			plan, err := cleaner.PlanDelete(p.FS, summary.ID)
+			plan, err := cleaner.PlanDelete(p.FS, ref.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -242,6 +242,7 @@ func planAbandonedSessions(p *providerEntry, cleaner contracts.Cleaner) ([]contr
 // tool. The match is by Provider.Name(), the same string
 // chronicle doctor displays.
 func (a *App) PlanCleanupStale(olderThan time.Duration, providerName string) ([]PlannedDeletion, error) {
+	defer a.flushSummaryCache()
 	if olderThan < minimumStaleAge {
 		return nil, fmt.Errorf("clean stale: --older-than must be at least %s", minimumStaleAge)
 	}
@@ -256,7 +257,7 @@ func (a *App) PlanCleanupStale(olderThan time.Duration, providerName string) ([]
 		if !ok {
 			continue
 		}
-		plans, err := planStaleSessions(p, cleaner, cutoff)
+		plans, err := a.planStaleSessions(p, cleaner, cutoff)
 		if err != nil {
 			return nil, fmt.Errorf("clean: %s on %s: %w", CategoryStale, p.Provider.Name(), err)
 		}
@@ -279,7 +280,7 @@ func (a *App) PlanCleanupStale(olderThan time.Duration, providerName string) ([]
 // reads less per session, so it scales much better. On a
 // machine with hundreds of sessions, stale runs in
 // listing-time rather than parse-time.
-func planStaleSessions(p *providerEntry, cleaner contracts.Cleaner, cutoff time.Time) ([]contracts.DeletePlan, error) {
+func (a *App) planStaleSessions(p *providerEntry, cleaner contracts.Cleaner, cutoff time.Time) ([]contracts.DeletePlan, error) {
 	projects, err := p.Provider.ListProjects(p.FS)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -290,7 +291,7 @@ func planStaleSessions(p *providerEntry, cleaner contracts.Cleaner, cutoff time.
 
 	var plans []contracts.DeletePlan
 	for _, project := range projects {
-		summaries, err := p.Provider.ListSessions(p.FS, project.ID)
+		summaries, err := a.summariesForProject(p, project.ID)
 		if err != nil {
 			return nil, err
 		}

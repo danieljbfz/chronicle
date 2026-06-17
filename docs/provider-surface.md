@@ -1,93 +1,52 @@
-# Provider Surface Analysis
+# Provider surface
 
-This document is the authoritative reference for how chronicle reasons
-about its supported providers. Every time someone proposes a new
-chronicle feature, the question is the same: what does each provider
-expose, where do those exposures overlap, and is the new chronicle
-surface a provider-agnostic primitive or a provider-specific
-capability that some adapters opt into?
+This document is the authoritative reference for how chronicle reasons about its supported providers. Every time someone proposes a new chronicle feature, the question is the same: what does each provider expose, where do those exposures overlap, and is the new chronicle surface a provider-agnostic primitive or a provider-specific capability that some adapters opt into?
 
-The document is a snapshot. AI coding tools evolve quickly. Re-read it
-against the current docs before making architectural decisions that
-depend on it.
+The document is a snapshot. AI coding tools evolve quickly. Re-read it against the current docs before making architectural decisions that depend on it.
 
-Sources: official Claude Code documentation (`code.claude.com/docs`)
-and GitHub Copilot documentation (`docs.github.com/en/copilot`),
-December 2026 snapshot. Both verified against the working machine's
-on-disk state at the time of writing.
+Sources: official Claude Code documentation (`code.claude.com/docs`) and GitHub Copilot documentation (`docs.github.com/en/copilot`), May 2026 snapshot. Both verified against the working machine's on-disk state at the time of writing.
+
+## Contents
+
+- [Why this matters](#why-this-matters)
+- [The four buckets](#the-four-buckets)
+- [Claude Code: user-facing concept inventory](#claude-code-user-facing-concept-inventory)
+- [GitHub Copilot: user-facing concept inventory](#github-copilot-user-facing-concept-inventory)
+- [Cross-provider taxonomy](#cross-provider-taxonomy)
+- [Open architectural questions](#open-architectural-questions)
+- [Provider capability matrix](#provider-capability-matrix)
+- [Decision principles, summarized](#decision-principles-summarized)
+- [What to read next when this document is stale](#what-to-read-next-when-this-document-is-stale)
 
 ---
 
 ## Why this matters
 
-Chronicle started as a Claude Code session browser. The architecture
-generalized to multi-provider through optional capability interfaces.
-That generalization is structurally correct but the design has drifted
-in two ways the work below corrects:
+Chronicle reads the on-disk history of several AI coding assistants through one abstraction, and the abstraction is a deliberate subset of everything those tools write to disk. Each tool exposes around thirty distinct user-facing concepts. Chronicle models the handful that are sessions, the artifacts that follow a session, memory, and global config — and leaves the rest to the tool that owns it. The coverage is uneven across providers, and that is fine, because each row reflects what the tool actually exposes. What matters is that the coverage is deliberate.
 
-1. **Concept coverage is uneven.** Chronicle models 5 of the ~30
-   distinct user-facing concepts Claude Code exposes. Copilot exposes
-   a similar number, and chronicle models a different 1-2 of them. The
-   uneven coverage is fine, but it should be deliberate, not
-   accidental.
-
-2. **The Copilot adapter sees one surface, not all of them.** Copilot
-   has at least three distinct local-state surfaces (VS Code chat,
-   Copilot CLI sessions, IDE-resident agent state) and chronicle today
-   reads only the first. That is a real coverage gap, not a design
-   choice.
-
-The work below names every concept on both sides, decides what
-chronicle should model, and writes down the reasons for what it
-deliberately does not.
+This document names every concept on both sides, decides what chronicle should model, and writes down the reasons for what it deliberately does not.
 
 ---
 
 ## The four buckets
 
-Every concept either AI tool exposes falls into one of four buckets.
-The bucket determines how chronicle should treat it.
+Every concept either AI tool exposes falls into one of four buckets. The bucket determines how chronicle should treat it.
 
-**Bucket 1: Shared concepts with the same shape.**
-Both tools have it, with similar enough storage and semantics that one
-abstraction fits both. Chronicle's `contracts.Provider` interface
-models these. Example: sessions (a sequence of user/assistant turns
-on disk).
+**Bucket 1: Shared concepts with the same shape.** Both tools have it, with similar enough storage and semantics that one abstraction fits both. Chronicle's `contracts.Provider` interface models these. Example: sessions (a sequence of user/assistant turns on disk).
 
-**Bucket 2: Shared concepts with different shapes.**
-Both tools have it, but the storage is dissimilar enough that one
-adapter has to translate to the chronicle abstraction. Chronicle's
-optional capability interfaces (`Cleaner`, `MemoryStore`,
-`GlobalMemoryStore`, `Resumable`, `GlobalConfig`) live here.
-Example: per-project memory exists in both tools but with different
-file conventions.
+**Bucket 2: Shared concepts with different shapes.** Both tools have it, but the storage is dissimilar enough that one adapter has to translate to the chronicle abstraction. Chronicle's optional capability interfaces (`Cleaner`, `MemoryStore`, `GlobalMemoryStore`, `Resumable`, `GlobalConfig`) live here. Example: per-project memory exists in both tools but with different file conventions.
 
-**Bucket 3: Provider-specific concepts.**
-Only one tool has it. Chronicle either models it as an optional
-capability that only one adapter implements (the current pattern) or
-deliberately leaves it alone. Example: Claude's `~/.claude.json` is
-specific to Claude. A Cursor or Antigravity adapter would have a
-different file or no equivalent.
+**Bucket 3: Provider-specific concepts.** Only one tool has it. Chronicle either models it as an optional capability that only one adapter implements (the current pattern) or deliberately leaves it alone. Example: Claude's `~/.claude.json` is specific to Claude. A Cursor or Antigravity adapter would have a different file or no equivalent.
 
-**Bucket 4: Chronicle-added concepts.**
-Neither tool exposes it as a first-class concept, and chronicle
-invented it. Example: cross-provider search, cross-provider stats,
-multi-provider unification at the CLI surface.
+**Bucket 4: Chronicle-added concepts.** Neither tool exposes it as a first-class concept, and chronicle invented it. Example: cross-provider search, cross-provider stats, multi-provider unification at the CLI surface.
 
-The architectural rule is the same in every bucket: the contracts
-layer never knows the names of any specific provider, the composition
-layer never imports any specific adapter, and the CLI never speaks
-about "Claude" or "Copilot" except through user-facing examples
-clearly marked as such.
+The architectural rule is the same in every bucket: the contracts layer never knows the names of any specific provider, the composition layer never imports any specific adapter, and the CLI never speaks about "Claude" or "Copilot" except through user-facing examples clearly marked as such.
 
 ---
 
 ## Claude Code: user-facing concept inventory
 
-The list below covers concepts that have on-disk state chronicle
-could in principle inspect, browse, export, or clean. Runtime-only
-concepts (Computer Use, Voice Dictation, Streaming output, observability
-exports) are out of scope by definition.
+The list below covers concepts that have on-disk state chronicle could in principle inspect, browse, export, or clean. Runtime-only concepts (Computer Use, Voice Dictation, Streaming output, observability exports) are out of scope by definition.
 
 | Concept | On-disk location | What chronicle does today |
 | --- | --- | --- |
@@ -126,25 +85,12 @@ exports) are out of scope by definition.
 
 ## GitHub Copilot: user-facing concept inventory
 
-GitHub Copilot is an umbrella brand. Two distinct products
-under that brand write to local disk and chronicle models
-each as its own adapter:
+GitHub Copilot is an umbrella brand. Two distinct products under that brand write to local disk and chronicle models each as its own adapter:
 
-- **Copilot Chat extension** (`adapters/copilotchat/`).
-  The classic VS Code in-IDE chat panel. Stores its data
-  inside VS Code's workspaceStorage. Has been in
-  production for years.
-- **Copilot agent runtime** (`adapters/copilotagent/`).
-  The autonomous SDK runtime at `@github/copilot-sdk`,
-  invoked from VS Code's agent mode, the standalone
-  Copilot CLI tool, or any application that imports the
-  SDK directly. Newer, in public preview.
+- **Copilot Chat extension** (`adapters/copilotchat/`). The classic VS Code in-IDE chat panel. Stores its data inside VS Code's workspaceStorage. Has been in production for years.
+- **Copilot agent runtime** (`adapters/copilotagent/`). The autonomous SDK runtime at `@github/copilot-sdk`, invoked from VS Code's agent mode, the standalone Copilot CLI tool, or any application that imports the SDK directly. Newer, in public preview.
 
-The two have non-overlapping data on disk: no session id
-appears in both places, the file formats share zero
-bytes, and a single user can have data in both. They are
-not two versions of the same product. Each gets its own
-adapter and shows up as its own row in `chronicle doctor`.
+The two have non-overlapping data on disk: no session id appears in both places, the file formats share zero bytes, and a single user can have data in both. They are not two versions of the same product. Each gets its own adapter and shows up as its own row in `chronicle doctor`.
 
 ### copilot-chat surface (VS Code Chat extension)
 
@@ -204,20 +150,15 @@ This is the foundation. Both tools fit cleanly.
 | User-global config with per-project entries | `~/.claude.json` projects map | no direct equivalent (per-project state lives in workspaceStorage, not a single map) | `contracts.GlobalConfig` — Claude implements, Copilot does not |
 | Resume in original tool | `claude --resume <id>` CLI flag | VS Code Chat has no external API to jump to a session by id. The @github/copilot-sdk does have a resumable-session contract, but we have not yet wired it through | `contracts.Resumable` — Claude implements, copilot-agent is the natural next candidate |
 
-The pattern: every optional capability that exists today is also a
-real candidate for another adapter to implement, once we read that
-adapter's docs and confirm the semantics line up. The capability
-interfaces are not Claude-specific. They are concept-specific.
+The pattern: every optional capability that exists today is also a real candidate for another adapter to implement, once we read that adapter's docs and confirm the semantics line up. The capability interfaces are not Claude-specific. They are concept-specific.
 
 ### Bucket 3: provider-specific concepts
 
-These exist in one tool but not the other and chronicle correctly does
-not abstract over them.
+These exist in one tool but not the other and chronicle correctly does not abstract over them.
 
 **Claude-specific:**
 - `cleanupPeriodDays` setting and its semantics
-- Skills with the SKILL.md format (Claude pioneered, now an open
-  standard, but Copilot's plugin format diverges)
+- Skills with the SKILL.md format (Claude pioneered, now an open standard, but Copilot's plugin format diverges)
 - `.claude/rules/` directory with `paths` frontmatter
 - Claude's subagent system with custom agents
 - Computer Use, routines, channels (runtime/cloud concerns)
@@ -229,14 +170,11 @@ not abstract over them.
 - Org/enterprise centrally-managed MCP registry
 - Copilot Spaces
 
-Chronicle should not invent abstractions over these unless a third
-provider with the same concept arrives.
+Chronicle should not invent abstractions over these unless a third provider with the same concept arrives.
 
 ### Bucket 4: chronicle-added concepts
 
-These exist only because chronicle invented them. They are the value
-proposition of having a multi-provider history manager that is
-neither tool itself.
+These exist only because chronicle invented them. They are the value proposition of having a multi-provider history manager that is neither tool itself.
 
 - Cross-provider session listing
 - Cross-provider stats and disk-usage breakdown
@@ -247,105 +185,31 @@ neither tool itself.
 - Inspection of historic memory state across tools
 - Inspection of user-global config across tools
 
-Each of these is a value add that neither upstream tool provides
-because each upstream tool only sees its own data. Chronicle's job is
-to be the one tool that sees them all.
+Each of these is a value add that neither upstream tool provides because each upstream tool only sees its own data. Chronicle's job is to be the one tool that sees them all.
 
 ---
 
-## Architecture decisions this analysis forces
+## Open architectural questions
 
-The CLI is stable. The architecture is stable. But this analysis
-surfaces three real gaps and three deferred decisions.
+The CLI surface and the architecture are stable. Three concepts sit at the edge of the abstraction, each a deliberate decision about what chronicle does not model.
 
-### Gap 1 (closed): Copilot agent sessions are now modeled
+### Project-level custom instructions
 
-An earlier revision of this document called out that
-`~/.copilot/session-state/<id>/` contained real session
-data chronicle did not see. The follow-up research showed
-the directory is the on-disk persistence layer for the
-`@github/copilot-sdk` LocalSessionManager, which the
-Copilot agent runtime uses regardless of which frontend
-launched it (VS Code agent mode, the standalone Copilot
-CLI, or any application that imports the SDK).
+`<repo>/CLAUDE.md` (and `<repo>/.copilot-instructions.md` for Copilot) live in the user's git repos, not in any tool's local-state directory. Chronicle does not model them, because its mission is local-state management, not every file an AI tool reads. This is a settled decision.
 
-Resolution: chronicle now ships two distinct GitHub
-Copilot adapters. `adapters/copilotchat/` reads the VS
-Code Copilot Chat extension's data under
-workspaceStorage. `adapters/copilotagent/` reads the
-agent runtime's data under `~/.copilot/`. Both appear in
-`chronicle doctor` with their own provider names
-(`copilot-chat`, `copilot-agent`), version fingerprints,
-and capability sets. Adding a third Copilot product later
-(say, GitHub.com cloud sessions if they ever ship local
-mirroring) would be a third sibling adapter.
+### MCP server configurations
 
-### Gap 2: cross-provider concepts that exist but chronicle ignores
+MCP servers exist in both tools but are managed by each tool's own CLI (`claude mcp`, `gh copilot mcp`). Chronicle could offer a cross-provider listing view, but it cannot meaningfully edit the configs without becoming a thin, lossy wrapper. The only defensible chronicle surface is read-only inspection, and that stays a Maybe until a concrete user need shows up.
 
-**Project-level custom instructions** live in `<repo>/CLAUDE.md` (or
-`<repo>/.copilot-instructions.md` for Copilot). Chronicle does not
-model them because they live in the user's git repos, not in any
-tool's local-state directory. The audit pass concluded this was the
-right choice: chronicle's mission is local-state management, not
-"every file an AI tool reads." Sticking with that decision.
+### Cross-tool open standards
 
-**MCP server configurations** exist in both tools but are managed by
-each tool's own CLI (`claude mcp`, `gh copilot mcp`). Chronicle could
-offer a cross-provider listing view, but it cannot meaningfully edit
-the configs without becoming a thin lossy wrapper. The right
-chronicle surface, if any, is read-only inspection. **Filed as a
-future "Maybe."**
-
-### Gap 3: cross-tool open standards exist but chronicle does not lean on them
-
-`AGENTS.md` is the cross-tool equivalent of `CLAUDE.md`. The Agent
-Skills standard at agentskills.io defines a portable skill format. If
-chronicle ever expands its inspection surface to skills or
-project-level instructions, it should model them through these
-standards, not through Claude's or Copilot's specific shapes. **This
-is an architectural principle, not a feature decision.**
-
-### Deferred decision 1: model in the SessionSummary
-
-The user's session JSONL files now carry a `model` field (Claude
-sessions identify the underlying model used, including third-party
-models like MiniMax routed through ANTHROPIC_BASE_URL). Chronicle
-currently does not surface this in `SessionSummary`. Adding it would
-let `chronicle stats --by-model` work and let `chronicle list --json`
-expose it. **This is the smallest real follow-up worth doing**, and
-because the field's semantics are uniform across providers (the
-upstream tool always knows what model served the request), the
-chronicle abstraction is just "a string the user might want to filter
-on." Not a new capability, just a new field on an existing struct.
-
-### Deferred decision 2: skills as a chronicle surface
-
-Skills as a portable, cross-tool concept are real. Each tool has its
-own skills directory. A `chronicle skills list` command that walks
-both tools' directories is a defensible product idea. But the audit
-principle holds: each tool already has its own UI for listing
-installed skills, and chronicle being a wrapper buys little. The
-cross-tool angle is real value, but small. **Filed as a "Maybe" that
-needs a real user need before we build it.**
-
-### Deferred decision 3: the TUI surface
-
-Now that the full concept surface is mapped, the TUI design becomes
-tractable. The TUI must wrap every chronicle command without
-proliferating into a tool that tries to do what `claude` and `gh
-copilot` do. The right TUI scope is exactly what chronicle's CLI
-already does: browse, search, stats, export, clean, memory, resume,
-config, dangling — six to eight pages, each wrapping one CLI
-subcommand family. **The TUI is the next big strategic piece, and
-this analysis confirms it is the right next piece because the CLI
-surface is stable.**
+`AGENTS.md` is the cross-tool equivalent of `CLAUDE.md`, and the Agent Skills standard at agentskills.io defines a portable skill format. If chronicle ever expands its inspection surface to skills or project-level instructions, it should model them through these standards rather than through any one tool's specific shape. This is an architectural principle, not a committed feature.
 
 ---
 
 ## Provider capability matrix
 
-This table is the user-facing version of the bucket
-analysis above. The README references it.
+This table is the user-facing version of the bucket analysis above. The README references it.
 
 | Capability | claude | copilot-chat | copilot-agent |
 | --- | --- | --- | --- |
@@ -356,45 +220,25 @@ analysis above. The README references it.
 | `Resumable` (re-open in original tool) | ✓ | ✗ (no external API) | ✗ (candidate — the SDK is designed for resumable sessions, work pending) |
 | `GlobalConfig` (per-project config entries) | ✓ | ✗ (no single global config with project map) | ✗ (none in the SDK) |
 
-The asymmetry is real and intentional. Each row reflects
-what the underlying tool actually exposes, not chronicle's
-preferences.
+The asymmetry is real and intentional. Each row reflects what the tool actually exposes, not chronicle's preferences.
 
 ---
 
 ## Decision principles, summarized
 
-1. **The base Provider is required**. Optional capabilities are
-   discovered by type assertion. New providers ship only what their
-   tool supports.
+1. **The base Provider is required**. Optional capabilities are discovered by type assertion. New providers ship only what their tool supports.
 
-2. **The contracts layer never names a provider**. Adapter-specific
-   constants (filenames, directory layouts, executable names) stay
-   inside the adapter package.
+2. **The contracts layer never names a provider**. Adapter-specific constants (filenames, directory layouts, executable names) stay inside the adapter package.
 
-3. **The composition layer never imports an adapter**. It iterates
-   `a.providers` and type-asserts to capability interfaces. The
-   registry in `adapters/all.go` is the only place that knows the
-   adapter package names.
+3. **The composition layer never imports an adapter**. It iterates `a.providers` and type-asserts to capability interfaces. The registry in `adapters/all.go` is the only place that knows the adapter package names.
 
-4. **The CLI never speaks about a provider by name**. Provider
-   examples in help text route through `chronicle doctor` so the
-   user sees what is actually registered on their machine.
+4. **The CLI never speaks about a provider by name**. Provider examples in help text route through `chronicle doctor` so the user sees what is actually registered on their machine.
 
-5. **Adding a new provider is one new package + one entry in the
-   registry**. The config layer's `map[string]ProviderConfig`
-   already supports unknown provider names round-tripping through
-   TOML.
+5. **Adding a new provider is one new package + one entry in the registry**. The config layer's `map[string]ProviderConfig` already supports unknown provider names round-tripping through TOML.
 
-6. **Skip-by-default for concepts the upstream tool already manages
-   well**. Plugins, MCP servers, IDE settings, cloud sessions. The
-   chronicle value is in the gap the upstream tools leave, not in
-   wrapping what they already do.
+6. **Skip-by-default for concepts the upstream tool already manages well**. Plugins, MCP servers, IDE settings, cloud sessions. The chronicle value is in the gap the upstream tools leave, not in wrapping what they already do.
 
-7. **No preferential treatment**. Every feature decision is
-   structured to fit any number of future adapters. Claude is not the
-   canonical provider. Copilot is not the test case. They are two
-   instances of the abstract "AI coding tool with on-disk history."
+7. **No preferential treatment**. Every feature decision is structured to fit any number of future adapters. Claude is not the canonical provider. Copilot is not the test case. They are two instances of the abstract "AI coding tool with on-disk history."
 
 ---
 

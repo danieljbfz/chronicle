@@ -86,7 +86,7 @@ func TestMemoryFilePath(t *testing.T) {
 // items. The test guards against a regression where someone
 // changes the function to skip files based on the wrong
 // criterion, which would silently leave memory files behind
-// after the user said "delete this project's memory."
+// when deleting a project's memory.
 func TestPlanDeleteProjectMemory_includesAllFiles(t *testing.T) {
 	fsys := fstest.MapFS{
 		"projects/-Users-test/memory/MEMORY.md":       {Data: []byte("# idx")},

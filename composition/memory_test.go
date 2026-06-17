@@ -42,8 +42,11 @@ func (f *memoryFake) Detect(fs.FS) (contracts.StorageVersion, error) {
 func (f *memoryFake) ListProjects(fs.FS) ([]contracts.Project, error) {
 	return nil, nil
 }
-func (f *memoryFake) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (f *memoryFake) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (f *memoryFake) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (f *memoryFake) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversation, error) {
 	return contracts.Conversation{}, nil
@@ -336,8 +339,11 @@ func (f *globalMemoryFake) Detect(fs.FS) (contracts.StorageVersion, error) {
 	return contracts.StorageVersion{}, nil
 }
 func (f *globalMemoryFake) ListProjects(fs.FS) ([]contracts.Project, error) { return nil, nil }
-func (f *globalMemoryFake) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (f *globalMemoryFake) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (f *globalMemoryFake) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (f *globalMemoryFake) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversation, error) {
 	return contracts.Conversation{}, nil
@@ -604,8 +610,11 @@ func (f *combinedMemoryFake) Detect(fs.FS) (contracts.StorageVersion, error) {
 	return contracts.StorageVersion{}, nil
 }
 func (f *combinedMemoryFake) ListProjects(fs.FS) ([]contracts.Project, error) { return nil, nil }
-func (f *combinedMemoryFake) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (f *combinedMemoryFake) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (f *combinedMemoryFake) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (f *combinedMemoryFake) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversation, error) {
 	return contracts.Conversation{}, nil

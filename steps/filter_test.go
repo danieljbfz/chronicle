@@ -103,3 +103,61 @@ func TestFilter_isPure(t *testing.T) {
 		t.Errorf("Filter mutated its input: had %d, now %d", before, len(in.Messages))
 	}
 }
+
+// rescuedConversation holds one message per rescued block kind, so a
+// test can turn on a single hide flag and confirm it drops exactly
+// that kind and nothing else.
+func rescuedConversation() contracts.Conversation {
+	return contracts.Conversation{
+		Messages: []contracts.Message{
+			{Role: contracts.RoleAssistant, Blocks: []contracts.Block{contracts.AwaySummaryBlock{Text: "summary"}}},
+			{Role: contracts.RoleSystem, Blocks: []contracts.Block{contracts.FileContextBlock{Path: "/a.go", Content: "x"}}},
+		},
+	}
+}
+
+// TestFilter_rescueFlagsAreIndependent proves each rescue flag drops
+// only its own block kind. We turn the flags on one at a time and
+// assert that the matching block disappears while the other survives,
+// which is the property the per-record CLI flags promise.
+func TestFilter_rescueFlagsAreIndependent(t *testing.T) {
+	cases := []struct {
+		name string
+		opts FilterOptions
+		gone func(contracts.Block) bool
+	}{
+		{"HideAwaySummaries", FilterOptions{HideAwaySummaries: true}, func(b contracts.Block) bool {
+			_, ok := b.(contracts.AwaySummaryBlock)
+			return ok
+		}},
+		{"HideFileContext", FilterOptions{HideFileContext: true}, func(b contracts.Block) bool {
+			_, ok := b.(contracts.FileContextBlock)
+			return ok
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := Filter(rescuedConversation(), tc.opts)
+			if len(out.Messages) != 1 {
+				t.Fatalf("got %d messages, want 1 (one kind dropped, one kept)", len(out.Messages))
+			}
+			for _, m := range out.Messages {
+				for _, b := range m.Blocks {
+					if tc.gone(b) {
+						t.Errorf("%s left a block it should have dropped: %T", tc.name, b)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestFilter_rescuedBlocksSurviveByDefault proves an empty
+// FilterOptions keeps every rescued block, so an unfiltered export
+// shows away summaries and file-context snapshots.
+func TestFilter_rescuedBlocksSurviveByDefault(t *testing.T) {
+	out := Filter(rescuedConversation(), FilterOptions{})
+	if len(out.Messages) != 2 {
+		t.Errorf("got %d messages, want 2 (nothing dropped with no flags set)", len(out.Messages))
+	}
+}

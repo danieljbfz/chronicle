@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+	"sync"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/sync/errgroup"
@@ -39,10 +40,16 @@ type providerEntry struct {
 // App is the wired-up composition the entrypoints use. The
 // expected lifecycle is one App per chronicle process. Entrypoints
 // build it once at startup with New, then call its read methods.
+//
+// cache holds the persistent session-summary cache, loaded lazily on
+// the first listing and shared across every later one. cacheOnce guards
+// that one-time load.
 type App struct {
 	settings  config.Config
 	locations paths.Locations
 	providers []*providerEntry
+	cache     *summaryCache
+	cacheOnce sync.Once
 }
 
 // New builds an App. It resolves the filesystem paths, loads the
@@ -105,7 +112,6 @@ func New() (*App, error) {
 func (a *App) detectAll() error {
 	group := new(errgroup.Group)
 	for _, p := range a.providers {
-		p := p // capture loop variable for the closure
 		group.Go(func() error {
 			sv, err := p.Provider.Detect(p.FS)
 			if err != nil {
@@ -188,6 +194,7 @@ type SessionListing struct {
 // one tool, or the empty string to get everything. The CLI list
 // command is the main caller of this method.
 func (a *App) ListSessionsAll(providerName string) ([]SessionListing, error) {
+	defer a.flushSummaryCache()
 	var out []SessionListing
 	for _, p := range a.providers {
 		if providerName != "" && p.Provider.Name() != providerName {
@@ -201,7 +208,7 @@ func (a *App) ListSessionsAll(providerName string) ([]SessionListing, error) {
 			return nil, err
 		}
 		for _, proj := range projects {
-			sessions, err := p.Provider.ListSessions(p.FS, proj.ID)
+			sessions, err := a.summariesForProject(p, proj.ID)
 			if err != nil {
 				return nil, err
 			}

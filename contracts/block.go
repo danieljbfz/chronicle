@@ -30,11 +30,23 @@ type TextBlock struct {
 // ThinkingBlock holds the assistant's internal reasoning, which Claude
 // emits as a separate content kind alongside its visible reply. The
 // renderer hides thinking by default, and the user can opt to show it.
-// We never drop a thinking block at parse time, even though we hide it
-// by default, because the resilience contract asks us to keep every
-// piece of content the upstream tool wrote.
+//
+// Claude stores reasoning two ways. Most blocks carry the reasoning as
+// readable text in Text. Some carry an empty Text and only an encrypted
+// signature, the shape Claude writes when extended thinking runs with
+// its display set to "omitted": the reasoning did happen, but the
+// readable text is not on disk — the full reasoning is encrypted in the
+// signature and only Anthropic's API can read it. Encrypted marks that
+// second shape so the renderer can show an honest marker rather than an
+// empty quote. A block with neither readable text nor a signature
+// represents no reasoning at all and is dropped at parse time.
 type ThinkingBlock struct {
 	Text string
+
+	// Encrypted is true when the readable reasoning text was omitted
+	// on disk and only the encrypted signature remains. Text is empty
+	// in that case.
+	Encrypted bool
 }
 
 // ToolUseBlock represents the assistant invoking a tool such as Bash or
@@ -76,6 +88,50 @@ type ImageBlock struct {
 	PathOrInlineRef string
 }
 
+// DocumentBlock describes a document, such as a PDF, that was
+// attached to a turn. It is the document counterpart of ImageBlock
+// and behaves the same way. The block records only the MIME type and
+// a reference (a byte count for inline base64, otherwise the source
+// kind), never the document bytes, so a base64 payload never lands in
+// the rendered transcript. That reference is enough information for a
+// future version of the user interface to locate the document when it
+// needs to render it.
+type DocumentBlock struct {
+	MIME            string
+	PathOrInlineRef string
+}
+
+// FileContextBlock holds a file's content that the editor attached to
+// a turn as context for the assistant, rather than content the user
+// typed or the assistant read through a tool. The parser gives these
+// the system role for that reason — the user did not write them.
+// Claude records this three ways, and we fold all of them into this
+// one block because they are the same thing to a reader: a file path
+// and the content the assistant saw. The three sources are a whole
+// file attached to the turn (the "file" attachment), a snapshot of a
+// file open in the editor (the "edited_text_file" attachment), and a
+// range highlighted in the editor (the "selected_lines_in_ide"
+// attachment). Content is the text as Claude stored it, often with
+// leading line numbers. This is the file state the assistant saw, and
+// it usually appears nowhere else in the transcript, so dropping it
+// would leave a reply with no visible sign of what it was reacting
+// to. The HideFileContext filter flag drops these.
+type FileContextBlock struct {
+	Path    string
+	Content string
+}
+
+// AwaySummaryBlock holds a session summary Claude writes when the
+// user steps away mid-session, capturing the goal, current status,
+// and next steps. Claude stores these as system records with
+// subtype away_summary and, notably, marks them isMeta:false — it
+// does not consider them bookkeeping. They are some of the most
+// information-dense prose in a session, so we surface them. The
+// HideAwaySummaries filter flag drops them.
+type AwaySummaryBlock struct {
+	Text string
+}
+
 // UnknownBlock is what we produce when the upstream tool emits a content
 // kind that no version of chronicle knows how to interpret. The renderer
 // surfaces these as "Unknown block" entries that the reader can inspect,
@@ -93,9 +149,12 @@ type UnknownBlock struct {
 // empty blockMarker method. The compiler checks the relationship every
 // time we assign a value of one of these types into a Block variable,
 // and the marker itself adds nothing to the runtime cost.
-func (TextBlock) blockMarker()       {}
-func (ThinkingBlock) blockMarker()   {}
-func (ToolUseBlock) blockMarker()    {}
-func (ToolResultBlock) blockMarker() {}
-func (ImageBlock) blockMarker()      {}
-func (UnknownBlock) blockMarker()    {}
+func (TextBlock) blockMarker()        {}
+func (ThinkingBlock) blockMarker()    {}
+func (ToolUseBlock) blockMarker()     {}
+func (ToolResultBlock) blockMarker()  {}
+func (ImageBlock) blockMarker()       {}
+func (DocumentBlock) blockMarker()    {}
+func (FileContextBlock) blockMarker() {}
+func (AwaySummaryBlock) blockMarker() {}
+func (UnknownBlock) blockMarker()     {}

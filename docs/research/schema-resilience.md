@@ -1,6 +1,15 @@
 # Schema resilience: surviving format churn
 
-Claude Code and VS Code Copilot both ship weekly and both have changed their on-disk formats multiple times in the past two years. A tool that reads their data must assume the format will change underneath it. This document is the contract for how we handle that.
+Claude Code and VS Code Copilot both ship weekly and both have changed their on-disk formats multiple times in the past two years. A tool that reads their data must assume the format will change underneath it. This document is the contract for how chronicle handles that.
+
+## Contents
+
+- [The problem](#the-problem)
+- [The contract](#the-contract)
+- [Where the seam lives](#where-the-seam-lives)
+- [What the adapter does not do](#what-the-adapter-does-not-do)
+- [Test strategy](#test-strategy)
+- [When to bump chronicle's own version](#when-to-bump-chronicles-own-version)
 
 ## The problem
 
@@ -8,7 +17,7 @@ Concrete examples from the last two years.
 
 | Date | Tool | Change | Impact on a naive reader |
 |---|---|---|---|
-| Dec 2023 | VS Code | Renamed "interactive sessions" → "chat" in storage keys. | Old keys still aliased; new keys ignored. |
+| Dec 2023 | VS Code | Renamed "interactive sessions" → "chat" in storage keys. | VS Code kept the old keys as aliases, so a reader that knew only them quietly missed the new chat keys. |
 | Spring 2024 | VS Code | Moved persisted chats from the `interactive.sessions` row in `state.vscdb` to per-session files under `workspaceStorage/<hash>/chatSessions/`. | A reader looking only at the SQLite row sees zero history. |
 | Oct 2024 | VS Code | Introduced `chatEditingSessions/<sessionId>/` for Copilot Edits. | A cleanup tool that deletes only the JSONL leaks the edit directory. |
 | 2025 | VS Code | Added `toolInvocation`, `confirmation`, `undoStop` response kinds. | A renderer that switches on the response `kind` enum crashes on the new values. |
@@ -61,42 +70,9 @@ The banner copy is intentionally non-alarming. The format changing is the upstre
 
 ## Where the seam lives
 
-Per the engineering contract in `SKILL_PROMPT.md`, the abstraction is justified only because there are two concrete callers — Claude and Copilot — on day one. The layout follows the project's import-downhill rule.
+The resilience contract lives at the boundary between the adapters and the rest of the system. Detection and tolerant parsing are an adapter's job: `detect.go` computes the fingerprint and maps it to a version, and `parse.go` folds the storage into the normalized `contracts.Conversation`, preserving anything it does not recognize as a `contracts.UnknownBlock`. The capability flags travel up to the UI on the `StorageVersion` value, so a layer above the adapter decides what to render without knowing the storage format.
 
-```
-contracts/
-    Conversation, Message, ToolCall, FileEdit     ← normalized domain types
-    StorageVersion, Capabilities                  ← version + capability shape
-    Provider                                      ← interface; no I/O
-
-adapters/
-    claude/
-        detect.go      ← fingerprint + version
-        parse.go       ← JSONL → contracts/Conversation
-        cleanup.go     ← cascade-delete map for ~/.claude
-    copilot/
-        detect.go
-        parse.go       ← replays kind:0/1/2 events
-        cleanup.go     ← cascade for workspaceStorage + state.vscdb + CLI
-    cursor/            ← stub; ship when we have a second user
-    jetbrains/         ← stub; ship when we have a second user
-
-steps/                 ← pure transforms; no I/O
-    filter.go          ← hide tool outputs, hide thinking, etc.
-    export.go          ← Conversation → markdown
-    diff.go            ← file-history diff renderer
-
-composition/           ← the only place that orchestrates I/O
-    browse.go
-    cleanup.go
-
-entrypoints/
-    tui/               ← Bubble Tea / Lip Gloss UI
-    web/               ← local HTTP server, htmx/templ frontend
-    cli/               ← `--export`, `--clean --dry-run` etc.
-```
-
-Imports go downhill: contracts → adapters → steps → composition → entrypoints. No sideways imports between adapters. No I/O outside composition. The TUI and the Web frontend are sibling consumers of the same composition layer.
+This works because imports flow strictly downhill — contracts is a leaf, adapters and steps depend on it, and composition depends on them. No adapter imports another, and no I/O happens outside composition, so a format change touches exactly one adapter and nothing above it. The full package layout is in [`../codebase-tour.md`](../codebase-tour.md).
 
 ## What the adapter does **not** do
 
@@ -106,7 +82,7 @@ Imports go downhill: contracts → adapters → steps → composition → entryp
 
 ## Test strategy
 
-Every adapter ships with a fixture corpus under `tests/fixtures/<adapter>/<version>/`:
+Every adapter ships with a fixture corpus under its own `testdata/` directory:
 
 - One real-shape file per known version, with secrets scrubbed.
 - A "synthetic-future" file in each adapter that introduces a fabricated unknown record type or response kind. The test asserts that parsing succeeds, the unknown is preserved in the model, and the renderer produces the "unknown" block.
@@ -114,6 +90,6 @@ Every adapter ships with a fixture corpus under `tests/fixtures/<adapter>/<versi
 
 The synthetic-future test is the canary. When it fails because we made the parser stricter, we know we broke the contract.
 
-## When to bump our own version
+## When to bump chronicle's own version
 
-Our app has its own `--version`. We bump it on every release of an adapter that changes the **normalized contract** (the domain types in `contracts/`), not on every release of an upstream tool. Adapter-internal recognition of a new VS Code build is a patch release. Adding a new field to `Conversation` is a minor release. Removing or renaming a field is a major release.
+Chronicle's version moves on every change to the **normalized contract** (the domain types in `contracts/`), not on every release of an upstream tool. Adapter-internal recognition of a new VS Code build is a patch release. Adding a new field to `Conversation` is a minor release. Removing or renaming a field is a major release.

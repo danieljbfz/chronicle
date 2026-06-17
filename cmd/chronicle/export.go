@@ -31,6 +31,7 @@ import (
 func newExportCmd() *cobra.Command {
 	var (
 		noTools, noThinking, noMeta bool
+		noAwaySummaries, noFiles    bool
 		outPath                     string
 		bulkProject                 string
 		providerName                string
@@ -58,10 +59,12 @@ The directory is created if it does not exist.`,
 				return fail("init: %v", err)
 			}
 			opts := exportOpts{
-				noTools:    noTools,
-				noThinking: noThinking,
-				noMeta:     noMeta,
-				outPath:    outPath,
+				noTools:         noTools,
+				noThinking:      noThinking,
+				noMeta:          noMeta,
+				noAwaySummaries: noAwaySummaries,
+				noFiles:         noFiles,
+				outPath:         outPath,
 			}
 			if bulkProject != "" {
 				return runBulkExport(app, contracts.ProjectID(bulkProject), providerName, opts, cmd.ErrOrStderr())
@@ -75,6 +78,8 @@ The directory is created if it does not exist.`,
 	cmd.Flags().BoolVar(&noTools, "no-tools", false, "Drop tool use and tool result blocks")
 	cmd.Flags().BoolVar(&noThinking, "no-thinking", false, "Drop assistant thinking blocks")
 	cmd.Flags().BoolVar(&noMeta, "no-meta", false, "Drop meta messages like slash-command echoes")
+	cmd.Flags().BoolVar(&noAwaySummaries, "no-away-summaries", false, "Drop step-away session summaries")
+	cmd.Flags().BoolVar(&noFiles, "no-files", false, "Drop attached, edited, and selected file content")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Write to this file (single mode) or directory (bulk mode)")
 	cmd.Flags().StringVar(&bulkProject, "bulk", "", "Export every session in one project. Value is the project id.")
 	cmd.Flags().StringVar(&providerName, "provider", "", `Disambiguate when more than one provider knows the project (see chronicle doctor for the list)`)
@@ -88,6 +93,7 @@ The directory is created if it does not exist.`,
 // because the filter knobs apply to both modes identically.
 type exportOpts struct {
 	noTools, noThinking, noMeta bool
+	noAwaySummaries, noFiles    bool
 	outPath                     string
 }
 
@@ -110,9 +116,11 @@ func runExport(app *composition.App, id contracts.SessionID, opts exportOpts, st
 		return fail("read session %q: %v", id, err)
 	}
 	conv = steps.Filter(conv, steps.FilterOptions{
-		HideTools:    opts.noTools,
-		HideThinking: opts.noThinking,
-		HideMeta:     opts.noMeta,
+		HideTools:         opts.noTools,
+		HideThinking:      opts.noThinking,
+		HideMeta:          opts.noMeta,
+		HideAwaySummaries: opts.noAwaySummaries,
+		HideFileContext:   opts.noFiles,
 	})
 	md := steps.Markdown(conv)
 
@@ -142,10 +150,12 @@ func runBulkExport(app *composition.App, projectID contracts.ProjectID, provider
 	}
 
 	bulkOpts := composition.BulkExportOptions{
-		Provider:     providerName,
-		HideTools:    opts.noTools,
-		HideThinking: opts.noThinking,
-		HideMeta:     opts.noMeta,
+		Provider:          providerName,
+		HideTools:         opts.noTools,
+		HideThinking:      opts.noThinking,
+		HideMeta:          opts.noMeta,
+		HideAwaySummaries: opts.noAwaySummaries,
+		HideFileContext:   opts.noFiles,
 	}
 
 	var totalBytes int64

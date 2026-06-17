@@ -20,6 +20,14 @@ type FilterOptions struct {
 	HideThinking  bool
 	HideMeta      bool
 	HideSidechain bool
+
+	// The flags below drop the block kinds chronicle rescues from
+	// Claude's non-conversation records. They default to false, so an
+	// export keeps away summaries and file-context snapshots unless the
+	// caller asks otherwise. A reader who wants only the typed
+	// back-and-forth turns these on.
+	HideAwaySummaries bool // drops AwaySummaryBlock (step-away session summaries)
+	HideFileContext   bool // drops FileContextBlock (attached/edited/selected file content)
 }
 
 // Filter returns a copy of the conversation with the requested blocks
@@ -66,6 +74,16 @@ func Filter(c contracts.Conversation, opts FilterOptions) contracts.Conversation
 			}
 			if opts.HideThinking {
 				if _, ok := b.(contracts.ThinkingBlock); ok {
+					continue
+				}
+			}
+			if opts.HideAwaySummaries {
+				if _, ok := b.(contracts.AwaySummaryBlock); ok {
+					continue
+				}
+			}
+			if opts.HideFileContext {
+				if _, ok := b.(contracts.FileContextBlock); ok {
 					continue
 				}
 			}

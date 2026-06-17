@@ -26,8 +26,11 @@ func (memoryProviderStub) Detect(fs.FS) (contracts.StorageVersion, error) {
 	return contracts.StorageVersion{Adapter: "stub"}, nil
 }
 func (memoryProviderStub) ListProjects(fs.FS) ([]contracts.Project, error) { return nil, nil }
-func (memoryProviderStub) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (memoryProviderStub) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (memoryProviderStub) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (memoryProviderStub) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversation, error) {
 	return contracts.Conversation{}, nil

@@ -182,48 +182,44 @@ func emptyWindowProject(root fs.FS) (contracts.Project, bool) {
 	}, true
 }
 
-// ListSessions returns one SessionSummary per chat in the given
-// project. The lookup branches on whether the project is the
-// synthetic empty-window bucket or a real workspace, because each
-// case lives in a different directory.
-func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]contracts.SessionSummary, error) {
+// ListSessionRefs returns one parse-free ref per chat in a project,
+// branching on the synthetic empty-window bucket the same way
+// ListSessions does. The locator is the full session-file path so
+// SummarizeSession can replay it without re-walking the workspaces.
+func (p *Provider) ListSessionRefs(root fs.FS, project contracts.ProjectID) ([]contracts.SessionRef, error) {
 	dir := chatDirForProject(project)
 	entries, err := fs.ReadDir(root, dir)
 	if err != nil {
 		return nil, newError("list sessions", dir, err)
 	}
-
-	var summaries []contracts.SessionSummary
+	var refs []contracts.SessionRef
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
 			continue
 		}
-		sessionFile := path.Join(dir, entry.Name())
-		conv, err := readSessionFile(root, sessionFile, project, p.cached)
-		if err != nil {
-			return nil, newError("read session", sessionFile, err)
+		ref := contracts.SessionRef{
+			ID:      contracts.SessionID(strings.TrimSuffix(entry.Name(), ".jsonl")),
+			Project: project,
+			Locator: path.Join(dir, entry.Name()),
 		}
-		var size int64
 		if info, err := entry.Info(); err == nil {
-			size = info.Size()
+			ref.SizeBytes = info.Size()
+			ref.ModTime = info.ModTime()
 		}
-		summaries = append(summaries, contracts.SessionSummary{
-			ID:           contracts.SessionID(strings.TrimSuffix(entry.Name(), ".jsonl")),
-			Project:      project,
-			StartedAt:    conv.StartedAt,
-			LastActive:   conv.EndedAt,
-			Title:        conv.ListingTitle(),
-			TurnCount:    len(conv.Messages),
-			SizeBytes:    size,
-			Model:        conv.Model,
-			Capabilities: p.cached.Capabilities,
-			Source:       p.cached,
-		})
+		refs = append(refs, ref)
 	}
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].LastActive.After(summaries[j].LastActive)
-	})
-	return summaries, nil
+	return refs, nil
+}
+
+// SummarizeSession replays the one session the ref names and returns its
+// listing summary, paid only on a cache miss. The ref carries the owning
+// project so the conversation gets the right Project stamp.
+func (p *Provider) SummarizeSession(root fs.FS, ref contracts.SessionRef) (contracts.SessionSummary, error) {
+	conv, err := readSessionFile(root, ref.Locator, ref.Project, p.cached)
+	if err != nil {
+		return contracts.SessionSummary{}, newError("read session", ref.Locator, err)
+	}
+	return contracts.NewSessionSummary(ref, conv, p.cached), nil
 }
 
 // chatDirForProject picks the right directory to look in based on

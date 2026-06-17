@@ -57,8 +57,11 @@ func (f *fakeNamedProvider) Detect(fs.FS) (contracts.StorageVersion, error) {
 func (f *fakeNamedProvider) ListProjects(fs.FS) ([]contracts.Project, error) {
 	return nil, nil
 }
-func (f *fakeNamedProvider) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (f *fakeNamedProvider) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (f *fakeNamedProvider) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (f *fakeNamedProvider) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversation, error) {
 	return contracts.Conversation{}, nil
@@ -256,6 +259,63 @@ func TestTrashRestore_refusesToOverwrite(t *testing.T) {
 
 	if err := a.TrashRestore(entry.ID); err == nil {
 		t.Error("restore should refuse to overwrite an existing file")
+	}
+}
+
+// TestTrashRestore_abortsWhenADestinationCannotBeChecked pins the
+// pre-flight against an ambiguous stat. The pre-flight is meant to
+// clear every destination before moving any item, so a restore
+// either fully happens or does not start. When a stat fails for a
+// reason other than "not found" — here a destination whose parent
+// is a regular file, which yields ENOTDIR — the restore must abort
+// before moving anything. The fixture trashes two items, then turns
+// the second item's parent into a file. The first item must remain
+// in the trash, proving the restore did not half-complete.
+func TestTrashRestore_abortsWhenADestinationCannotBeChecked(t *testing.T) {
+	a, dataRoot, _ := newTrashTestApp(t, "claude")
+
+	clean := filepath.Join(dataRoot, "clean.txt")
+	if err := os.WriteFile(clean, []byte("restore me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blockedDir := filepath.Join(dataRoot, "blocker")
+	if err := os.Mkdir(blockedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blockedDir, "inner.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := contracts.DeletePlan{
+		Category: "test",
+		Items: []contracts.DeleteItem{
+			{Path: "clean.txt"},
+			{Path: "blocker/inner.txt"},
+		},
+	}
+	entry, err := a.Trash(plannedDeletion{provider: a.providers[0], plan: plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Replace the emptied blocker directory with a regular file, so
+	// stat-ing the second item's destination fails with ENOTDIR
+	// rather than a clean "not found".
+	if err := os.Remove(blockedDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blockedDir, []byte("now a file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.TrashRestore(entry.ID); err == nil {
+		t.Fatal("restore should abort when a destination cannot be stat-checked")
+	}
+
+	// The first item must not have been restored: the pre-flight
+	// aborted before any move, so a clean restore did not leak out.
+	if _, err := os.Stat(clean); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("first item should stay in the trash after an aborted restore, stat err = %v", err)
 	}
 }
 

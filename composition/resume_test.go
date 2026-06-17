@@ -26,8 +26,11 @@ func (f *resumableFake) Detect(fs.FS) (contracts.StorageVersion, error) {
 	return contracts.StorageVersion{}, nil
 }
 func (f *resumableFake) ListProjects(fs.FS) ([]contracts.Project, error) { return nil, nil }
-func (f *resumableFake) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (f *resumableFake) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (f *resumableFake) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (f *resumableFake) ReadSession(_ fs.FS, id contracts.SessionID) (contracts.Conversation, error) {
 	if _, ok := f.known[id]; !ok {
@@ -59,8 +62,11 @@ func (f *nonResumableFake) Detect(fs.FS) (contracts.StorageVersion, error) {
 	return contracts.StorageVersion{}, nil
 }
 func (f *nonResumableFake) ListProjects(fs.FS) ([]contracts.Project, error) { return nil, nil }
-func (f *nonResumableFake) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (f *nonResumableFake) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (f *nonResumableFake) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (f *nonResumableFake) ReadSession(_ fs.FS, id contracts.SessionID) (contracts.Conversation, error) {
 	if !f.known[id] {

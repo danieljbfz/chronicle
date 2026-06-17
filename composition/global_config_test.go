@@ -30,8 +30,11 @@ func (f *globalConfigFake) Detect(fs.FS) (contracts.StorageVersion, error) {
 	return contracts.StorageVersion{}, nil
 }
 func (f *globalConfigFake) ListProjects(fs.FS) ([]contracts.Project, error) { return nil, nil }
-func (f *globalConfigFake) ListSessions(fs.FS, contracts.ProjectID) ([]contracts.SessionSummary, error) {
+func (f *globalConfigFake) ListSessionRefs(fs.FS, contracts.ProjectID) ([]contracts.SessionRef, error) {
 	return nil, nil
+}
+func (f *globalConfigFake) SummarizeSession(fs.FS, contracts.SessionRef) (contracts.SessionSummary, error) {
+	return contracts.SessionSummary{}, nil
 }
 func (f *globalConfigFake) ReadSession(fs.FS, contracts.SessionID) (contracts.Conversation, error) {
 	return contracts.Conversation{}, nil

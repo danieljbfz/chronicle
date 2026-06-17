@@ -4,6 +4,20 @@ Where VS Code Copilot Chat, Copilot CLI, Cursor, and JetBrains Copilot persist t
 
 Sources: direct inspection of a running install on macOS 2026, plus VS Code release notes through v1.100 and the open-source `microsoft/vscode` chat module. JetBrains specifics are noted as unverified because the user does not have JetBrains installed and the docs were not reachable from this session.
 
+## Contents
+
+- [Top-level paths](#top-level-paths-macos-current-vs-code)
+- [Linking a workspace hash to a folder](#linking-a-workspace-hash-to-a-folder)
+- [Chat session JSONL format](#chat-session-jsonl-format-current-schema-version-3)
+- [`chatEditingSessions/<sessionId>/`](#chateditingsessionssessionid)
+- [`state.vscdb`](#statevscdb-sqlite-wal-mode)
+- [`globalStorage/github.copilot-chat/`](#globalstoragegithubcopilot-chat)
+- [Cross-references (cascade-delete map)](#cross-references-cascade-delete-map)
+- [Cursor and VS Code Insiders](#cursor-and-vs-code-insiders)
+- [JetBrains Copilot (unverified)](#jetbrains-copilot-unverified)
+- [Local-data observations](#local-data-observations-this-machine-2026-05-15)
+- [Why the format model differs from Claude's](#why-the-format-model-differs-from-claudes)
+
 ## Top-level paths (macOS, current VS Code)
 
 | Path | What it is |
@@ -43,7 +57,7 @@ To read the current state, replay all lines in order. To stream changes, watch f
 
 The `v` of the initial snapshot has:
 
-- `version` — the schema version (currently `3`). **This is our format-stability anchor.**
+- `version` — the schema version, `3` in the builds observed here. **This is our format-stability anchor.**
 - `sessionId` — UUID, matches the filename.
 - `creationDate`, `lastMessageDate` — epoch ms.
 - `responderUsername`, `responderId` — "GitHub Copilot" / Copilot extension id.
@@ -156,4 +170,4 @@ Claude Code writes **append-only typed records** with parent/child UUIDs forming
 - For Claude, fold records into a parent-pointer tree and render.
 - For Copilot, replay `kind: 0` then apply `kind: 1` and `kind: 2` patches to get the current state, then render `requests[]`.
 
-The `Provider` interface (see the design spec when it lands) hides this difference behind a `read(sessionId) -> Conversation` method that returns a normalized view.
+The `Provider` interface hides this difference behind a `ReadSession` method that returns a normalized `Conversation`, so every layer above the adapter is blind to the storage shape. The package layout is in [`../codebase-tour.md`](../codebase-tour.md).

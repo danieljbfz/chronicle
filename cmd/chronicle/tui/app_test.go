@@ -140,3 +140,73 @@ func TestAppModel_Update_WindowSizeForwards(t *testing.T) {
 		t.Errorf("expected width=120 height=40, got width=%d height=%d", updated.width, updated.height)
 	}
 }
+
+// recordingScreen is a Screen that counts the messages it receives.
+// It lets the routing tests below assert which screens an app-level
+// message reaches without depending on any real screen's internals.
+type recordingScreen struct {
+	updates int
+}
+
+func (s *recordingScreen) Init() tea.Cmd { return nil }
+
+func (s *recordingScreen) Update(tea.Msg) (Screen, tea.Cmd) {
+	s.updates++
+	return s, nil
+}
+
+func (s *recordingScreen) View() string { return "" }
+
+// probeBackgroundMsg stands in for an async event a screen's command
+// produces — a load result or a spinner tick. It is neither a key
+// nor a mouse message, so the app must treat it as background.
+type probeBackgroundMsg struct{}
+
+// TestAppModel_Update_BroadcastsBackgroundMsgToEveryScreen pins the
+// fix for the loading freeze. A section that is still loading in the
+// background must keep receiving its spinner ticks and its pending
+// result even after the user switches away, or its spinner strands
+// and its result is lost. So a background message reaches every
+// screen, not only the active one.
+func TestAppModel_Update_BroadcastsBackgroundMsgToEveryScreen(t *testing.T) {
+	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0", DefaultGlamourStyle)
+	active := &recordingScreen{}
+	background := &recordingScreen{}
+	m.screens[sectionSessions] = active
+	m.screens[sectionStats] = background
+	m.active = sectionSessions
+
+	m.Update(probeBackgroundMsg{})
+
+	if active.updates != 1 {
+		t.Errorf("active screen should receive the background message, updates = %d, want 1", active.updates)
+	}
+	if background.updates != 1 {
+		t.Errorf("inactive screen should also receive the background message, updates = %d, want 1", background.updates)
+	}
+}
+
+// TestAppModel_Update_RoutesInputToActiveScreenOnly is the other
+// half of the routing contract: keyboard input acts on the focused
+// view alone. Broadcasting a keypress to background screens would
+// scroll or mutate views the user is not looking at, so a plain key
+// the app does not handle globally reaches only the active screen.
+func TestAppModel_Update_RoutesInputToActiveScreenOnly(t *testing.T) {
+	m := newAppModel(nil, keys.Default(), theme.New(theme.VariantTerminal), "0.1.0", DefaultGlamourStyle)
+	active := &recordingScreen{}
+	background := &recordingScreen{}
+	m.screens[sectionSessions] = active
+	m.screens[sectionStats] = background
+	m.active = sectionSessions
+
+	// A plain key the app does not bind globally falls through to
+	// the focused screen.
+	m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+
+	if active.updates != 1 {
+		t.Errorf("active screen should receive the keypress, updates = %d, want 1", active.updates)
+	}
+	if background.updates != 0 {
+		t.Errorf("inactive screen should not receive the keypress, updates = %d, want 0", background.updates)
+	}
+}

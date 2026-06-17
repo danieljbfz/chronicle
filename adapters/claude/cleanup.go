@@ -179,8 +179,11 @@ func (p *Provider) PlanOrphanScan(root fs.FS) (contracts.DeletePlan, error) {
 	// Finally, scan for the floating-junk files that have
 	// nothing to do with a specific session. These live in
 	// their own helper so each heuristic stays small and the
-	// orphan map reads as one ordered list.
-	scanFloatingOrphans(root, &plan)
+	// orphan map reads as one ordered list. The known-session
+	// set is threaded through because one of those heuristics
+	// needs it, and re-deriving it would walk the projects tree
+	// a second time.
+	scanFloatingOrphans(root, knownSessions, &plan)
 	return plan, nil
 }
 

@@ -66,34 +66,34 @@ func TestProvider_ListProjects_combinesWorkspacesAndEmptyBucket(t *testing.T) {
 	}
 }
 
-// TestProvider_ListSessions_workspaceProject confirms we can list
+// TestProvider_ListSessionRefs_workspaceProject confirms we can list
 // the sessions of a real workspace. The fixture has two sessions
 // in workspace abc123, both should come back.
-func TestProvider_ListSessions_workspaceProject(t *testing.T) {
+func TestProvider_ListSessionRefs_workspaceProject(t *testing.T) {
 	p := New()
-	summaries, err := p.ListSessions(buildFS(t), "abc123")
+	refs, err := p.ListSessionRefs(buildFS(t), "abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(summaries) != 2 {
-		t.Fatalf("summaries = %d, want 2", len(summaries))
+	if len(refs) != 2 {
+		t.Fatalf("refs = %d, want 2", len(refs))
 	}
 }
 
-// TestProvider_ListSessions_emptyWindowBucket confirms the
+// TestProvider_ListSessionRefs_emptyWindowBucket confirms the
 // synthetic project routes to globalStorage/emptyWindowChatSessions
 // instead of into workspaceStorage. One session lives there.
-func TestProvider_ListSessions_emptyWindowBucket(t *testing.T) {
+func TestProvider_ListSessionRefs_emptyWindowBucket(t *testing.T) {
 	p := New()
-	summaries, err := p.ListSessions(buildFS(t), emptyWindowProjectID)
+	refs, err := p.ListSessionRefs(buildFS(t), emptyWindowProjectID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(summaries) != 1 {
-		t.Fatalf("summaries = %d, want 1", len(summaries))
+	if len(refs) != 1 {
+		t.Fatalf("refs = %d, want 1", len(refs))
 	}
-	if summaries[0].ID != "lonely-session" {
-		t.Errorf("session id = %q, want lonely-session", summaries[0].ID)
+	if refs[0].ID != "lonely-session" {
+		t.Errorf("session id = %q, want lonely-session", refs[0].ID)
 	}
 }
 

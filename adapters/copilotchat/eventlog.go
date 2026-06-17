@@ -36,14 +36,21 @@ const setEventKind = 1
 const appendEventKind = 2
 
 // rawEvent is one decoded event from the JSONL stream. The Kind
-// tells us which shape to expect. The K field is the JSON path,
-// expressed as a slice of keys to walk into the snapshot. The V
-// field holds the new value or array element, decoded as a generic
-// any so we can plug it into the snapshot map without committing
+// tells us which shape to expect. The K field is the JSON path to
+// walk into the snapshot, one component per level. A component is a
+// string when it indexes into an object and a number when it indexes
+// into an array — VS Code emits both, because a patch can target a
+// field deep inside requests[i].response[j]. The components decode
+// into the empty interface for that reason: typing K as []string
+// would fail to decode the moment a path reached through an array
+// index, and because the streaming decoder cannot resync after that
+// failure, the whole replay would abort and leave the session empty.
+// The V field holds the new value or array element, decoded as a
+// generic any so we can plug it into the snapshot without committing
 // to a typed shape.
 type rawEvent struct {
 	Kind int             `json:"kind"`
-	K    []string        `json:"k"`
+	K    []any           `json:"k"`
 	V    json.RawMessage `json:"v"`
 }
 
@@ -124,11 +131,19 @@ func replay(r io.Reader) (replayResult, error) {
 			if state == nil {
 				continue
 			}
-			var value any
-			if err := json.Unmarshal(event.V, &value); err != nil {
+			// A kind-2 value is the list of elements to append to the
+			// array the path names, not a single element. VS Code
+			// always writes it as an array — appending one item sends
+			// a one-element array — so we extend the target with each
+			// element in turn. A value that is not an array (or is
+			// null) appends nothing.
+			var elems []any
+			if err := json.Unmarshal(event.V, &elems); err != nil {
 				continue
 			}
-			appendAtPath(state, event.K, value)
+			for _, elem := range elems {
+				appendAtPath(state, event.K, elem)
+			}
 
 		default:
 			// Unknown kind. Record it once so the doctor view can
@@ -160,56 +175,100 @@ func decodeSnapshot(raw json.RawMessage) (map[string]any, bool) {
 	return snapshot, true
 }
 
-// setAtPath walks into the state map along the given key path and
-// sets the leaf to value. A path of length one updates a top-level
-// field. Longer paths walk into nested objects, creating
-// intermediate maps as needed.
-//
-// VS Code's events sometimes include numeric path components for
-// array indices. We treat those the same as string keys, because
-// JSON object keys can be any string. If a real array index
-// appears, the caller will read the value out through the same
-// numeric key when it walks the state.
-func setAtPath(state map[string]any, keys []string, value any) {
-	if len(keys) == 0 {
+// setAtPath sets value at the given path inside the snapshot. The
+// path walks through objects on string components and through arrays
+// on numeric ones, so a patch can land a value deep inside, say,
+// requests[3].response. The top of the snapshot is always an object,
+// so setNode mutates state in place and the discarded return is the
+// same map.
+func setAtPath(state map[string]any, path []any, value any) {
+	if len(path) == 0 {
 		return
 	}
-	current := state
-	for i := 0; i < len(keys)-1; i++ {
-		key := keys[i]
-		next, ok := current[key].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			current[key] = next
-		}
-		current = next
-	}
-	current[keys[len(keys)-1]] = value
+	setNode(state, path, value)
 }
 
-// appendAtPath walks into the state map along the key path and
-// appends value to the slice at the leaf. If the leaf does not
-// exist yet, we create a new slice with the one element. If the
-// leaf is not a slice, we replace it with a new slice and log no
-// error: the resilience contract says we keep going when the data
-// surprises us.
-func appendAtPath(state map[string]any, keys []string, value any) {
-	if len(keys) == 0 {
+// appendAtPath appends value to the array the path points at, walking
+// the same mixed object-and-array path as setAtPath. A missing array
+// is created; a leaf that is not an array is replaced by a new one,
+// the same keep-going stance the rest of the replayer takes.
+func appendAtPath(state map[string]any, path []any, value any) {
+	if len(path) == 0 {
 		return
 	}
-	current := state
-	for i := 0; i < len(keys)-1; i++ {
-		key := keys[i]
-		next, ok := current[key].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			current[key] = next
-		}
-		current = next
+	appendNode(state, path, value)
+}
+
+// setNode returns node with value placed at path, rebuilding arrays
+// and objects on the way back up so a grown or replaced array
+// propagates into its parent. An empty path means node itself is the
+// target and value replaces it.
+func setNode(node any, path []any, value any) any {
+	if len(path) == 0 {
+		return value
 	}
-	leafKey := keys[len(keys)-1]
-	existing, _ := current[leafKey].([]any)
-	current[leafKey] = append(existing, value)
+	switch key := path[0].(type) {
+	case string:
+		m, ok := node.(map[string]any)
+		if !ok {
+			m = map[string]any{}
+		}
+		m[key] = setNode(m[key], path[1:], value)
+		return m
+	case float64:
+		idx := int(key)
+		if idx < 0 {
+			return node
+		}
+		s := growSlice(node, idx)
+		s[idx] = setNode(s[idx], path[1:], value)
+		return s
+	default:
+		// A path component that is neither an object key nor an array
+		// index. Skip the patch rather than guess, so a surprising
+		// shape is a no-op instead of a corruption.
+		return node
+	}
+}
+
+// appendNode is setNode's sibling for the kind-2 append. It walks to
+// the array the path names and appends value to it, creating the
+// array when the leaf is missing or not an array.
+func appendNode(node any, path []any, value any) any {
+	if len(path) == 0 {
+		existing, _ := node.([]any)
+		return append(existing, value)
+	}
+	switch key := path[0].(type) {
+	case string:
+		m, ok := node.(map[string]any)
+		if !ok {
+			m = map[string]any{}
+		}
+		m[key] = appendNode(m[key], path[1:], value)
+		return m
+	case float64:
+		idx := int(key)
+		if idx < 0 {
+			return node
+		}
+		s := growSlice(node, idx)
+		s[idx] = appendNode(s[idx], path[1:], value)
+		return s
+	default:
+		return node
+	}
+}
+
+// growSlice returns node as a slice long enough to index idx, padding
+// with nil entries when the slice is short or absent. The parser
+// skips a nil entry when it walks the requests, so padding is safe.
+func growSlice(node any, idx int) []any {
+	s, _ := node.([]any)
+	for len(s) <= idx {
+		s = append(s, nil)
+	}
+	return s
 }
 
 // snapshotString reads a string field from the snapshot map at the

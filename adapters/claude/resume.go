@@ -2,8 +2,6 @@ package claude
 
 import (
 	"encoding/json"
-	"errors"
-	"io"
 	"io/fs"
 
 	"github.com/danieljbfz/chronicle/contracts"
@@ -71,10 +69,11 @@ func (p *Provider) ResumeCommand(root fs.FS, id contracts.SessionID) (contracts.
 // that Claude writes at the top of the file).
 //
 // The function returns the empty string and a nil error
-// when the file parses cleanly but contains no cwd. That
-// shape matches the "no cwd in file" sentinel the caller
-// uses to decide whether to fall back to the lossy folder-
-// name decode.
+// when the scan ends without a cwd, whether the file parsed
+// cleanly to its end or the stream became unreadable partway
+// through. That empty result is the sentinel the caller uses
+// to decide whether to fall back to the lossy folder-name
+// decode.
 func readSessionCwd(root fs.FS, sessionFile string) (string, error) {
 	f, err := root.Open(sessionFile)
 	if err != nil {
@@ -88,15 +87,16 @@ func readSessionCwd(root fs.FS, sessionFile string) (string, error) {
 			Cwd string `json:"cwd"`
 		}
 		if err := dec.Decode(&record); err != nil {
-			if errors.Is(err, io.EOF) {
-				return "", nil
-			}
-			// One bad JSON record should not bury the
-			// search. We skip past it and keep looking.
-			// The streaming decoder advances past the
-			// offending value automatically when the next
-			// Decode call runs.
-			continue
+			// A clean EOF means the whole file was read without
+			// a cwd. Any other error means the stream can no
+			// longer be parsed: json.Decoder does not recover
+			// from a syntax error or a value truncated mid-write
+			// (the shape a session file takes when it is read
+			// while Claude is still appending), and every later
+			// Decode would return that same error. Either way the
+			// scan is over, and the empty result sends the caller
+			// to the folder-name fallback.
+			return "", nil
 		}
 		if record.Cwd != "" {
 			return record.Cwd, nil
@@ -108,6 +108,6 @@ func readSessionCwd(root fs.FS, sessionFile string) (string, error) {
 // Resumable capability. If a future refactor changes the
 // interface signature, this line surfaces the mismatch at
 // build time instead of letting the runtime type assertion
-// silently return ok=false (the same trap that bit the
-// MemoryStore implementation early on).
+// composition uses silently return ok=false and drop the
+// capability without a word.
 var _ contracts.Resumable = (*Provider)(nil)

@@ -109,3 +109,132 @@ func TestMarkdown_renderToolBlocks(t *testing.T) {
 		t.Error("ToolResultBlock should render as a Tool result")
 	}
 }
+
+// TestMarkdown_renderRescuedBlocks proves the rescued block kinds
+// render with their own labels and carry their content through. The
+// labels are what a reader skims for to tell an away summary or a
+// file-context snapshot apart from a typed turn.
+func TestMarkdown_renderRescuedBlocks(t *testing.T) {
+	c := contracts.Conversation{
+		Messages: []contracts.Message{
+			{Role: contracts.RoleAssistant, Blocks: []contracts.Block{contracts.AwaySummaryBlock{Text: "goal and next steps"}}},
+			{Role: contracts.RoleSystem, Blocks: []contracts.Block{contracts.FileContextBlock{Path: "/proj/main.go", Content: "1\tpackage main"}}},
+		},
+	}
+	out := Markdown(c)
+	for _, want := range []string{
+		"Away summary", "goal and next steps",
+		"File context", "/proj/main.go", "package main",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Markdown missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
+// TestMarkdown_blockquoteDropsTrailingQuoteLine pins the blockquote
+// renderer against the trailing-quote-line bug. Assistant thinking
+// text routinely ends in a newline, and the renderer must not turn
+// that trailing newline into a stray "> " line at the end of the
+// quote. Thinking and away-summary blocks render through the same
+// helper, so pinning thinking covers both.
+func TestMarkdown_blockquoteDropsTrailingQuoteLine(t *testing.T) {
+	c := contracts.Conversation{
+		Messages: []contracts.Message{{
+			Role:   contracts.RoleAssistant,
+			Blocks: []contracts.Block{contracts.ThinkingBlock{Text: "I reasoned.\n"}},
+		}},
+	}
+	out := Markdown(c)
+	if !strings.Contains(out, "> _Thinking_\n>\n> I reasoned.\n\n") {
+		t.Errorf("thinking blockquote should end cleanly after the content line\n---\n%s", out)
+	}
+	if strings.Contains(out, "> \n") {
+		t.Errorf("blockquote should not contain a stray empty quote line\n---\n%s", out)
+	}
+}
+
+// TestMarkdown_toolResultTurnIsLabeledTool pins the heading for a
+// turn that carries only a tool result. The providers file these on
+// different roles — Claude on a user-role record — so the renderer
+// labels the turn "Tool" rather than echoing a role that would read
+// as if the person had typed the tool's output.
+func TestMarkdown_toolResultTurnIsLabeledTool(t *testing.T) {
+	c := contracts.Conversation{
+		Messages: []contracts.Message{{
+			Role:   contracts.RoleUser,
+			Blocks: []contracts.Block{contracts.ToolResultBlock{CallID: "1", Output: "ok"}},
+		}},
+	}
+	out := Markdown(c)
+	if !strings.Contains(out, "## Tool") {
+		t.Errorf("a tool-result-only turn should be labeled Tool\n---\n%s", out)
+	}
+	if strings.Contains(out, "## User") {
+		t.Errorf("a tool-result-only turn should not be labeled by its carrying role\n---\n%s", out)
+	}
+}
+
+// TestMarkdown_assistantTurnWithToolsKeepsItsRole guards the other
+// side: a turn that mixes prose with tool blocks is the assistant's
+// own turn and keeps the Assistant heading.
+func TestMarkdown_assistantTurnWithToolsKeepsItsRole(t *testing.T) {
+	c := contracts.Conversation{
+		Messages: []contracts.Message{{
+			Role: contracts.RoleAssistant,
+			Blocks: []contracts.Block{
+				contracts.TextBlock{Text: "Running it now."},
+				contracts.ToolResultBlock{CallID: "1", Output: "done"},
+			},
+		}},
+	}
+	out := Markdown(c)
+	if !strings.Contains(out, "## Assistant") {
+		t.Errorf("a mixed prose-and-tool turn should keep its role heading\n---\n%s", out)
+	}
+}
+
+// TestMarkdown_fencedContentSurvivesAnInnerFence pins fence safety.
+// Tool output, file context, and raw unknown JSON are dumped inside
+// code fences, and that content often contains its own ``` fence (a
+// tool that printed a Markdown file, for example). A bare three-tick
+// fence would let the inner fence close the block early and spill the
+// rest of the document out as broken Markdown, so the renderer opens
+// a fence longer than the longest backtick run in the content.
+func TestMarkdown_fencedContentSurvivesAnInnerFence(t *testing.T) {
+	output := "before\n```\ncode inside\n```\nafter"
+	c := contracts.Conversation{
+		Messages: []contracts.Message{{
+			Role:   contracts.RoleUser,
+			Blocks: []contracts.Block{contracts.ToolResultBlock{CallID: "1", Output: output}},
+		}},
+	}
+	out := Markdown(c)
+	if !strings.Contains(out, output) {
+		t.Errorf("the tool output should survive intact inside the fence\n---\n%s", out)
+	}
+	if !strings.Contains(out, "````\n"+output) {
+		t.Errorf("content with an inner ``` should open a longer (four-tick) fence\n---\n%s", out)
+	}
+}
+
+// TestMarkdown_encryptedThinkingRendersMarker pins the rendering of
+// Claude's "omitted" thinking: a thinking block with no readable
+// text but an encrypted signature. It must render an honest marker
+// that the reasoning happened, not an empty thinking quote with no
+// body.
+func TestMarkdown_encryptedThinkingRendersMarker(t *testing.T) {
+	c := contracts.Conversation{
+		Messages: []contracts.Message{{
+			Role:   contracts.RoleAssistant,
+			Blocks: []contracts.Block{contracts.ThinkingBlock{Encrypted: true}},
+		}},
+	}
+	out := Markdown(c)
+	if !strings.Contains(out, "encrypted form") {
+		t.Errorf("encrypted thinking should render an honest marker\n---\n%s", out)
+	}
+	if strings.Contains(out, "> _Thinking_\n>\n") {
+		t.Errorf("encrypted thinking should not render an empty thinking quote\n---\n%s", out)
+	}
+}

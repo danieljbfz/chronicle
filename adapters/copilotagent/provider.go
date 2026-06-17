@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"path"
-	"sort"
 
 	"github.com/danieljbfz/chronicle/contracts"
 )
@@ -129,17 +128,12 @@ func (p *Provider) ListProjects(root fs.FS) ([]contracts.Project, error) {
 	}}, nil
 }
 
-// ListSessions returns one SessionSummary per session
-// directory under session-state/. The adapter ignores the
-// project argument because every session belongs to the
-// single synthetic project. The parameter is retained to
-// satisfy the contracts.Provider interface and so a
-// future per-cwd grouping refinement does not change the
-// signature.
-func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]contracts.SessionSummary, error) {
-	// Step 1: enumerate the session-state directory. A
-	// missing directory is the fresh-install case and
-	// translates to an empty result rather than an error.
+// ListSessionRefs returns one parse-free ref per session directory under
+// session-state. The project argument is ignored because every session
+// belongs to the single synthetic project. The locator is the session
+// directory, and the size comes from its events.jsonl, the dominant
+// on-disk weight per session.
+func (p *Provider) ListSessionRefs(root fs.FS, _ contracts.ProjectID) ([]contracts.SessionRef, error) {
 	entries, err := fs.ReadDir(root, sessionStateDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -147,47 +141,35 @@ func (p *Provider) ListSessions(root fs.FS, project contracts.ProjectID) ([]cont
 		}
 		return nil, newError("list sessions", sessionStateDir, err)
 	}
-
-	// Step 2: read each session and build a SessionSummary.
-	// One unreadable session should not bury the rest, so
-	// we skip it and let the doctor view surface the
-	// per-session read failure if the user asks.
-	var summaries []contracts.SessionSummary
+	var refs []contracts.SessionRef
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		sessionDir := path.Join(sessionStateDir, entry.Name())
-		conv, err := readSession(root, sessionDir, p.cached)
-		if err != nil {
-			continue
+		ref := contracts.SessionRef{
+			ID:      contracts.SessionID(entry.Name()),
+			Project: agentProjectID,
+			Locator: sessionDir,
 		}
-		var size int64
-		eventsPath := path.Join(sessionDir, eventsFile)
-		if info, err := fs.Stat(root, eventsPath); err == nil {
-			size = info.Size()
+		if info, err := fs.Stat(root, path.Join(sessionDir, eventsFile)); err == nil {
+			ref.SizeBytes = info.Size()
+			ref.ModTime = info.ModTime()
 		}
-		summaries = append(summaries, contracts.SessionSummary{
-			ID:           contracts.SessionID(entry.Name()),
-			Project:      agentProjectID,
-			StartedAt:    conv.StartedAt,
-			LastActive:   conv.EndedAt,
-			Title:        conv.ListingTitle(),
-			TurnCount:    len(conv.Messages),
-			SizeBytes:    size,
-			Model:        conv.Model,
-			Capabilities: p.cached.Capabilities,
-			Source:       p.cached,
-		})
+		refs = append(refs, ref)
 	}
+	return refs, nil
+}
 
-	// Step 3: sort newest-first so the listing reads as
-	// "what did I do most recently?" The other adapters
-	// follow the same convention.
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].LastActive.After(summaries[j].LastActive)
-	})
-	return summaries, nil
+// SummarizeSession folds the one session's event stream into a listing
+// summary, paid only on a cache miss. The locator is the session
+// directory the events live in.
+func (p *Provider) SummarizeSession(root fs.FS, ref contracts.SessionRef) (contracts.SessionSummary, error) {
+	conv, err := readSession(root, ref.Locator, p.cached)
+	if err != nil {
+		return contracts.SessionSummary{}, newError("read session", ref.Locator, err)
+	}
+	return contracts.NewSessionSummary(ref, conv, p.cached), nil
 }
 
 // ReadSession returns the parsed Conversation for one

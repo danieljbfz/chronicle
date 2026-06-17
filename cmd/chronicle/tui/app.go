@@ -84,8 +84,8 @@ func newAppModel(app *composition.App, k keys.KeyMap, t theme.Theme, version, gl
 
 // Init starts the active section's load. Other sections are
 // initialised lazily, the first time the user activates them.
-// Eagerly loading every section at startup turned out to be a
-// real performance hazard: the stats screen walks every session
+// Eagerly loading every section at startup is a real
+// performance hazard: the stats screen walks every session
 // on every provider to compute its summary, which on a
 // realistic install (one or two hundred sessions across two
 // providers) is a multi-second cost the user pays before any
@@ -250,10 +250,30 @@ func (m appModel) refreshActive() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// forward sends the message to whichever view is active — the
-// transcript overlay when it is open, otherwise the active
-// section's screen.
+// forward routes a message that the app did not handle itself.
+// Keyboard and mouse input act on the focused view alone — the
+// transcript overlay when it is open, otherwise the active section.
+// Every other message is a background event: an async load result
+// or a spinner tick, produced by a command a screen started earlier.
+// Its owning screen may not be the focused one — a section keeps
+// loading after the user switches away — so background events are
+// broadcast to every screen, and each screen ignores the ones that
+// are not its own. Routing them to the focused view alone would
+// strand a still-loading background section's spinner and lose its
+// pending result, leaving that section stuck on its loading view.
 func (m appModel) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg.(type) {
+	case tea.KeyMsg, tea.MouseMsg:
+		return m.forwardToFocus(msg)
+	default:
+		return m.broadcast(msg)
+	}
+}
+
+// forwardToFocus sends the message to the one view that has focus:
+// the transcript overlay when it is open, otherwise the active
+// section's screen.
+func (m appModel) forwardToFocus(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.showTranscript {
 		var cmd tea.Cmd
 		m.transcript, cmd = m.transcript.Update(msg)
@@ -262,6 +282,26 @@ func (m appModel) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.screens[m.active], cmd = m.screens[m.active].Update(msg)
 	return m, cmd
+}
+
+// broadcast delivers the message to every section screen, and to
+// the transcript overlay only while it is open. A closed transcript
+// is excluded on purpose: it is rebuilt fresh on the next open, so
+// feeding it a stray tick would keep an orphaned spinner loop
+// running behind a view the user can no longer see.
+func (m appModel) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmds := make([]tea.Cmd, 0, len(m.order)+1)
+	for _, sec := range m.order {
+		var cmd tea.Cmd
+		m.screens[sec], cmd = m.screens[sec].Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	if m.showTranscript {
+		var cmd tea.Cmd
+		m.transcript, cmd = m.transcript.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // isFiltering reports whether the active section is the session
